@@ -19,3 +19,15 @@ unreleased.
   produces a PDF.
 - `pdf-lib` removed from the CDN block for the same reason — see the
   file-header comment in `index.html`.
+- Item content is now edited with Toast UI Editor (WYSIWYG, pinned 3.2.2) —
+  real rich-text editing with a one-click switch to raw Markdown mode, not
+  just a formatting toolbar over plain text. Dark mode is kept in sync with
+  the app's own theme toggle. Image insertion prompts for a URL/path instead
+  of embedding a base64 blob into the generated YAML.
+- Each item can be folded/collapsed independently (a compact header showing
+  just its title), plus a card-level "Collapse all" / "Expand all" control —
+  keeps long item lists manageable.
+- Item rows are now mounted once and patched in place (add/remove/reorder/fold
+  no longer trigger a full page rebuild) so Toast UI Editor instances aren't
+  destroyed and recreated on unrelated actions — see the "Item row lifecycle"
+  note at the top of `index.html`.

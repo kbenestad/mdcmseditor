@@ -28,3 +28,10 @@ editing an entire page's Markdown — front matter, prose, and every MD-CMS tag
 - A real favicon / PWA icon set (still the `basis` template placeholder).
 - Multiple in-progress drafts per block type (currently one draft each for
   Tabs and Accordion, autosaved to `localStorage`).
+- Preview fidelity: the Preview card still renders content through the
+  shared minimal `markdown()` helper, so advanced Markdown now easy to author
+  in the Toast UI Editor (tables, code blocks, task lists) won't render
+  correctly there even though it's valid output. Swapping in a Toast UI
+  Editor read-only `Viewer` per item would fix this, but needs a debounced
+  rebuild (not per-keystroke) to avoid the cost/churn of creating a Viewer
+  instance on every keystroke — deferred until it's worth the complexity.

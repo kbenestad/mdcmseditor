@@ -68,10 +68,14 @@ localisation:
       remove-item: "Remove item"
       move-up: "Move up"
       move-down: "Move down"
+      toggle-item: "Show or hide this item's fields"
+      collapse-all: "Collapse all"
+      expand-all: "Expand all"
       empty-items: "No items yet — add one to get started."
+      image-url-prompt: "Image URL or relative path (e.g. images/photo.png):"
 
       preview-title: "Preview"
-      preview-note: "Interaction only — colours and spacing follow your site's own mdcms theme, not this editor."
+      preview-note: "Simplified preview: shows the tab/accordion interaction, but colours, spacing, and some advanced Markdown (tables, code blocks) come from your site's own mdcms theme, not this editor."
 
       output-title: "Generated code"
       output-hint: "Paste this block directly into your MD-CMS page."
@@ -123,10 +127,14 @@ localisation:
       remove-item: "Element entfernen"
       move-up: "Nach oben"
       move-down: "Nach unten"
+      toggle-item: "Felder dieses Elements ein-/ausblenden"
+      collapse-all: "Alle einklappen"
+      expand-all: "Alle ausklappen"
       empty-items: "Noch keine Elemente — fügen Sie eins hinzu, um zu beginnen."
+      image-url-prompt: "Bild-URL oder relativer Pfad (z. B. images/photo.png):"
 
       preview-title: "Vorschau"
-      preview-note: "Nur die Interaktion — Farben und Abstände folgen dem mdcms-Theme Ihrer Seite, nicht diesem Editor."
+      preview-note: "Vereinfachte Vorschau: zeigt die Tab-/Akkordeon-Interaktion, aber Farben, Abstände und einiges an fortgeschrittenem Markdown (Tabellen, Codeblöcke) stammen aus dem mdcms-Theme Ihrer Seite, nicht aus diesem Editor."
 
       output-title: "Generierter Code"
       output-hint: "Diesen Block direkt in Ihre MD-CMS-Seite einfügen."

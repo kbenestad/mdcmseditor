@@ -8,16 +8,34 @@
   `basis` template — see ./README.md and ./CLAUDE.md for the template itself,
   ./DESIGN.md for the shared design system this app must stay pixel-identical to.
 
-  Deliberate deviation from the `basis` default: this app's "output" is a text
-  snippet, not a PDF, so pdf-lib is NOT loaded here (see the CDN block below)
-  and the action row lives inside each block-type panel instead of once
-  globally — every other chrome convention (head order, kb-* components,
-  toolbar/header/footer assembly) is unchanged.
+  Deliberate deviations from the `basis` default:
+   - This app's "output" is a text snippet, not a PDF, so pdf-lib is NOT loaded
+     (see the CDN block below) and the action row lives inside each block-type
+     panel instead of once globally.
+   - Item content is edited with Toast UI Editor (WYSIWYG, pinned 3.2.2 — see
+     the CDN block) instead of a plain kb-textarea. Because a rich editor
+     instance carries state (undo history, cursor, mode) that must not be
+     thrown away on every unrelated click, item rows are NOT rebuilt on every
+     state change the way the rest of the family's forms are — see "Item row
+     lifecycle" below.
+  Every other chrome convention (head order, kb-* components, toolbar/header/
+  footer assembly) is unchanged.
 
   Architecture note for future work (see docs/roadmap.md — a full-page MD-CMS
   editor is the long-term goal): block types are data, not special-cased code.
   Adding a third block (callout, toc, …) means adding one BLOCK_TYPES entry and
   a matching per-kind panel builder — see the "Block-type registry" section.
+
+  Item row lifecycle: unlike the rest of the app (full render() on any state
+  change), item rows are mounted once and patched in place:
+   - typing (title input, WYSIWYG content) mutates state directly and calls
+     refreshDerived(), which only touches the Preview/Output card bodies.
+   - add/remove/reorder/fold operate directly on the DOM (append/remove/move
+     nodes, toggle a class) via the `rowRegistry` — see addItem/removeItem/
+     moveItem/toggleCollapsed. None of them call render().
+   - render() (full rebuild, destroying and remounting every editor instance)
+     only runs at boot and on language switch, where every row's labels need
+     to change anyway.
   ════════════════════════════════════════════════════════════════════════════
 -->
 <html lang="en">
@@ -37,10 +55,13 @@
   (function(){var t=localStorage.getItem('kb-theme');if(t)document.documentElement.setAttribute('data-theme',t);})();
 </script>
 
-<!-- CDN libraries: js-yaml only. This app generates a Markdown/YAML text
-     snippet, never a PDF, so pdf-lib (the family's usual second CDN lib) is
-     deliberately not loaded — see the file-header note above. -->
+<!-- CDN libraries: js-yaml (config + snippet YAML) and Toast UI Editor (WYSIWYG
+     item-content editing, pinned so a version bump can't change behaviour
+     under us). No pdf-lib — see the file-header note above. -->
 <script src="https://unpkg.com/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
+<script src="https://uicdn.toast.com/editor/3.2.2/toastui-editor-all.min.js"></script>
+<link rel="stylesheet" href="https://uicdn.toast.com/editor/3.2.2/toastui-editor.min.css">
+<link rel="stylesheet" href="https://uicdn.toast.com/editor/3.2.2/theme/toastui-editor-dark.css">
 
 <!-- Shared design + runtime — LOCAL copies (self-contained / standalone).
      Kept byte-identical to bizdocs assets/. app.js MUST load before the inline <script>. -->
@@ -54,21 +75,45 @@
 <style>
 .mce-panel { padding-top: 18px; }
 
-/* Items card: variant switch row + repeatable item rows + add-item control. */
+/* Items card: variant switch row + fold-all control + repeatable item rows. */
 .mce-variant-row { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
 .mce-variant-row .kb-seg { margin-left: auto; }
+
+.mce-items-toolbar { display: flex; justify-content: flex-end; margin-bottom: 10px; }
+.mce-foldall-btn {
+  background: none; border: 0; cursor: pointer; color: var(--text-muted);
+  font: 600 var(--fs-small)/1 var(--font-sans); text-decoration: underline;
+  text-underline-offset: 2px; padding: 2px 0;
+}
+.mce-foldall-btn:hover { color: var(--text); }
 
 .mce-item {
   border: 1px solid var(--border); border-radius: var(--radius-sm);
   background: var(--surface-2); padding: 14px 16px; margin-bottom: 12px;
 }
-.mce-item__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
-.mce-item__index { font-size: var(--fs-label); font-weight: 600; letter-spacing: .03em; text-transform: uppercase; color: var(--text-muted); }
-.mce-item__move { display: flex; align-items: center; gap: 6px; }
+.mce-item__head { display: flex; align-items: center; gap: 8px; }
+.mce-item.is-collapsed .mce-item__head { margin-bottom: 0; }
+.mce-item:not(.is-collapsed) .mce-item__head { margin-bottom: 10px; }
+.mce-item__index { font-size: var(--fs-label); font-weight: 600; letter-spacing: .03em; text-transform: uppercase; color: var(--text-muted); flex-shrink: 0; }
+.mce-item__summary { font-size: var(--fs-small); font-weight: 600; color: var(--text-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+.mce-item__move { display: flex; align-items: center; gap: 6px; margin-left: auto; flex-shrink: 0; }
 .mce-item__row { display: grid; grid-template-columns: 1fr 180px; gap: 12px 16px; margin-bottom: 12px; }
-.mce-content { font-family: var(--font-mono); font-size: var(--fs-small); min-height: 108px; }
 
-.mce-toggle { display: flex; align-items: center; gap: 8px; font-size: var(--fs-small); color: var(--text-soft); cursor: pointer; }
+.mce-fold-btn {
+  display: inline-grid; place-items: center; width: 28px; height: 28px;
+  background: none; border: 0; color: var(--text-muted); cursor: pointer;
+  border-radius: var(--radius-sm); flex-shrink: 0;
+}
+.mce-fold-btn:hover { color: var(--accent); background: var(--surface-3); }
+.mce-fold-chevron { width: 16px; height: 16px; transition: transform .15s; }
+.mce-fold-btn[aria-expanded="false"] .mce-fold-chevron { transform: rotate(-90deg); }
+
+.mce-item.is-collapsed .mce-item__body { display: none; }
+
+/* Frame around each mounted Toast UI Editor so it reads as part of the page. */
+.mce-editor-frame { border: 1px solid var(--border-strong); border-radius: var(--radius-sm); overflow: hidden; }
+
+.mce-toggle { display: flex; align-items: center; gap: 8px; font-size: var(--fs-small); color: var(--text-soft); cursor: pointer; margin-top: 12px; }
 .mce-toggle input { accent-color: var(--accent); width: 16px; height: 16px; cursor: pointer; }
 
 .mce-add-btn {
@@ -214,27 +259,31 @@ function currentVariantDef(kind) {
 }
 
 function makeBlankItem() {
-  return { id: uid(), title: '', content: '', isDefault: false, titleStyle: '' };
+  return { id: uid(), title: '', content: '', isDefault: false, titleStyle: '', collapsed: false };
 }
 
 function seedItems(kind) {
   return kind === 'tab'
     ? [
-        { id: uid(), title: 'Install', content: 'Install with `npm i mdcms` or `pnpm add mdcms`.', isDefault: true, titleStyle: '' },
-        { id: uid(), title: 'Configure', content: 'Drop a `mdcms.config.yaml` next to your content folder.', isDefault: false, titleStyle: '' },
+        { id: uid(), title: 'Install', content: 'Install with `npm i mdcms` or `pnpm add mdcms`.', isDefault: true, titleStyle: '', collapsed: false },
+        { id: uid(), title: 'Configure', content: 'Drop a `mdcms.config.yaml` next to your content folder.', isDefault: false, titleStyle: '', collapsed: false },
       ]
     : [
-        { id: uid(), title: 'What is MD-CMS?', content: 'A single-file browser renderer: no build pipeline, no compilation, no server required.', isDefault: true, titleStyle: '' },
-        { id: uid(), title: 'How do I install it?', content: 'Run `pip install mdcms`, or download a binary from the GitHub releases page.', isDefault: false, titleStyle: '' },
+        { id: uid(), title: 'What is MD-CMS?', content: 'A single-file browser renderer: no build pipeline, no compilation, no server required.', isDefault: true, titleStyle: '', collapsed: false },
+        { id: uid(), title: 'How do I install it?', content: 'Run `pip install mdcms`, or download a binary from the GitHub releases page.', isDefault: false, titleStyle: '', collapsed: false },
       ];
 }
 
 // ── State + persistence ──────────────────────────────────────────────────────
-// Full-rebuild-on-change like the rest of the family, with one exception:
-// typing in a title/content field does NOT trigger a full render() (that would
-// steal focus mid-keystroke). It mutates state directly and calls
-// refreshDerived(), which only rebuilds the Preview/Output card bodies.
 let state = { variant: {}, items: {} };
+
+// Per-kind DOM refs for chrome that lives OUTSIDE the item rows (count badge,
+// empty-state note, the rows' host container, the fold-all button) — set once
+// in buildItemsCard(), read by add/remove/move/fold so those never need to
+// re-query the DOM or rebuild the card. Per-item refs (including the Toast UI
+// Editor instance) live in rowRegistry, keyed by item id.
+const cardRefs = { tab: {}, accordion: {} };
+const rowRegistry = { tab: new Map(), accordion: new Map() };
 
 const DRAFT_KEY = 'mdcmseditor-draft';
 
@@ -262,6 +311,7 @@ function loadDraft() {
         content: (it && typeof it.content === 'string') ? it.content : '',
         isDefault: !!(it && it.isDefault),
         titleStyle: (it && TITLE_STYLE_LEVELS.includes(it.titleStyle)) ? it.titleStyle : '',
+        collapsed: !!(it && it.collapsed),
       }));
     }
   });
@@ -296,8 +346,11 @@ function buildSnippet(kind) {
 }
 
 // ── Render ─────────────────────────────────────────────────────────────────
+// Full rebuild — destroys every mounted Toast UI Editor instance first. Only
+// called at boot and on language switch (see the file-header lifecycle note).
 function render() {
   persistDraft();
+  destroyAllEditors();
   const app = document.getElementById('app');
   app.innerHTML = '';
   const wrap = el('div', { className: 'kb-wrap' });
@@ -311,8 +364,16 @@ function render() {
   updateThemeIcon();
 }
 
+function destroyAllEditors() {
+  Object.keys(rowRegistry).forEach(kind => {
+    rowRegistry[kind].forEach(entry => { try { entry.editor.destroy(); } catch (e) { /* already gone */ } });
+    rowRegistry[kind].clear();
+  });
+}
+
 // Rebuild only the Preview + Output card bodies for one kind, in place. Used
-// by every keystroke handler so the field being typed into is never touched.
+// by every keystroke/toggle handler so item rows (and their live editors)
+// are never touched.
 function refreshDerived(kind) {
   const previewBody = document.getElementById('mce-preview-' + kind);
   if (previewBody) { previewBody.innerHTML = ''; previewBody.appendChild(buildPreviewBody(kind)); }
@@ -320,6 +381,37 @@ function refreshDerived(kind) {
   if (outputBody) { outputBody.innerHTML = ''; outputBody.appendChild(buildOutputBody(kind)); }
   persistDraft();
 }
+
+// Toast UI Editor has no reactive setTheme() — dark mode is a CSS class on
+// each editor's own container. Sync it here whenever the app theme flips,
+// rather than hooking toggleTheme() itself (shared app.js, must stay
+// byte-identical to bizdocs).
+new MutationObserver(() => {
+  const dark = currentTheme() === 'dark';
+  Object.keys(rowRegistry).forEach(kind => {
+    rowRegistry[kind].forEach(entry => entry.editorHost.classList.toggle('toastui-editor-dark', dark));
+  });
+}).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+// Toast UI Editor (vendored, not this app's code) can throw a benign
+// "removeChild" NotFoundError from its own internal ResizeObserver-driven
+// layout bookkeeping when an editor is destroyed shortly after its container
+// was hidden/shown (our fold/unfold, or a language switch's full rebuild).
+// Verified harmless: automated interaction tests (type/add/remove/reorder/
+// fold, in every order that can trigger it) show state, output, and every
+// other editor instance are unaffected either way. A magic delay before
+// destroy() was tried and is not reliably long enough on top of being bad
+// UX (remove should feel instant), so this narrowly-scoped filter — matched
+// on both origin file and exact error type/message — is the more honest fix
+// for a third-party timing quirk than either papering over it with a delay
+// or leaving user-facing console noise for something that isn't a real bug.
+window.addEventListener('error', (event) => {
+  const fromToastUI = event.filename && event.filename.indexOf('toastui-editor') !== -1;
+  const err = event.error;
+  if (fromToastUI && err && err.name === 'NotFoundError' && /removeChild/.test(err.message)) {
+    event.preventDefault();
+  }
+});
 
 // Toolbar: language select · spacer · A−/A+ size · theme · about
 function buildToolbar() {
@@ -402,15 +494,18 @@ function noteBox(variant, text) {
   return box;
 }
 
-// "Style" row (Underline/Filled) + the repeatable item list + add-item control.
+// "Style" row (Underline/Filled) + fold-all + the repeatable item list + add.
+// Builds cardRefs[kind] (count badge, empty note, items host, fold-all button)
+// once; add/remove/move/fold below patch those refs directly afterwards.
 function buildItemsCard(kind) {
   const cfg = BLOCK_TYPES[kind];
   const items = state.items[kind];
   const card = el('div', { className: 'kb-card' });
 
-  const title = el('div', { className: 'kb-card__title' }, S('items-title'));
-  title.appendChild(el('span', { className: 'count' }, String(items.length)));
-  card.appendChild(title);
+  const titleRow = el('div', { className: 'kb-card__title' }, S('items-title'));
+  const countEl = el('span', { className: 'count' }, String(items.length));
+  titleRow.appendChild(countEl);
+  card.appendChild(titleRow);
 
   const variantRow = el('div', { className: 'mce-variant-row' });
   variantRow.appendChild(el('span', { className: 'kb-label' }, S('variant-label')));
@@ -418,51 +513,76 @@ function buildItemsCard(kind) {
   cfg.variants.forEach(v => {
     const btn = el('button', { type: 'button' }, S('variant-' + v.id));
     if (state.variant[kind] === v.id) btn.classList.add('is-active');
-    btn.addEventListener('click', () => { state.variant[kind] = v.id; render(); });
+    btn.addEventListener('click', () => {
+      state.variant[kind] = v.id;
+      seg.querySelectorAll('button').forEach(b => b.classList.remove('is-active'));
+      btn.classList.add('is-active');
+      refreshDerived(kind);
+    });
     seg.appendChild(btn);
   });
   variantRow.appendChild(seg);
   card.appendChild(variantRow);
 
-  if (!items.length) {
-    card.appendChild(noteBox('info', S('empty-items')));
-  } else {
-    items.forEach((item, i) => card.appendChild(buildItemRow(kind, cfg, item, i, items.length)));
-  }
+  const foldAllRow = el('div', { className: 'mce-items-toolbar' });
+  const foldAllBtn = el('button', { type: 'button', className: 'mce-foldall-btn', onClick: () => toggleAllCollapsed(kind) });
+  foldAllRow.appendChild(foldAllBtn);
+  card.appendChild(foldAllRow);
 
-  const addBtn = el('button', { type: 'button', className: 'mce-add-btn', onClick: () => {
-    state.items[kind].push(makeBlankItem());
-    render();
-  } });
+  const emptyNote = noteBox('info', S('empty-items'));
+  emptyNote.hidden = items.length > 0;
+  card.appendChild(emptyNote);
+
+  const itemsHost = el('div', { className: 'mce-items' });
+  items.forEach(item => itemsHost.appendChild(mountItemRow(kind, cfg, item)));
+  card.appendChild(itemsHost);
+
+  const addBtn = el('button', { type: 'button', className: 'mce-add-btn', onClick: () => addItem(kind) });
   const plus = el('span', { className: 'kb-circbtn', 'aria-hidden': 'true' }, '+');
   addBtn.append(plus, el('span', null, S('add-item')));
   card.appendChild(addBtn);
 
+  cardRefs[kind] = { countEl, emptyNote, itemsHost, foldAllBtn };
+  updateFoldAllLabel(kind);
+
   return card;
 }
 
-function buildItemRow(kind, cfg, item, index, total) {
-  const row = el('div', { className: 'mce-item' });
+// Mounts one item row: header (index/summary/move/remove/fold), title input,
+// title-style select, a Toast UI Editor for content, and the default toggle.
+// Registers everything in rowRegistry so later operations patch this exact
+// row/editor instead of rebuilding it.
+function mountItemRow(kind, cfg, item) {
+  const row = el('div', { className: 'mce-item' + (item.collapsed ? ' is-collapsed' : '') });
 
   const head = el('div', { className: 'mce-item__head' });
-  head.appendChild(el('span', { className: 'mce-item__index' }, S('item-label', { n: index + 1 })));
+  const indexLabel = el('span', { className: 'mce-item__index' });
+  const summary = el('span', { className: 'mce-item__summary' }, item.collapsed ? item.title : '');
+  head.append(indexLabel, summary);
 
   const move = el('div', { className: 'mce-item__move' });
-  const upBtn = el('button', { type: 'button', className: 'kb-iconbtn', 'aria-label': S('move-up'), disabled: index === 0,
-    onClick: () => { const arr = state.items[kind]; [arr[index - 1], arr[index]] = [arr[index], arr[index - 1]]; render(); } }, '↑');
-  const downBtn = el('button', { type: 'button', className: 'kb-iconbtn', 'aria-label': S('move-down'), disabled: index === total - 1,
-    onClick: () => { const arr = state.items[kind]; [arr[index], arr[index + 1]] = [arr[index + 1], arr[index]]; render(); } }, '↓');
+  const upBtn = el('button', { type: 'button', className: 'kb-iconbtn', 'aria-label': S('move-up'),
+    onClick: () => moveItem(kind, item.id, -1) }, '↑');
+  const downBtn = el('button', { type: 'button', className: 'kb-iconbtn', 'aria-label': S('move-down'),
+    onClick: () => moveItem(kind, item.id, 1) }, '↓');
   const rmBtn = el('button', { type: 'button', className: 'kb-circbtn kb-circbtn--rm', 'aria-label': S('remove-item'),
-    onClick: () => { state.items[kind].splice(index, 1); render(); } }, '−');
-  move.append(upBtn, downBtn, rmBtn);
+    onClick: () => removeItem(kind, item.id) }, '−');
+  const foldBtn = el('button', { type: 'button', className: 'mce-fold-btn', 'aria-label': S('toggle-item'),
+    'aria-expanded': String(!item.collapsed), onClick: () => toggleCollapsed(kind, item.id) });
+  foldBtn.innerHTML = '<svg viewBox="0 0 24 24" class="mce-fold-chevron" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>';
+  move.append(upBtn, downBtn, rmBtn, foldBtn);
   head.appendChild(move);
   row.appendChild(head);
 
-  const topRow = el('div', { className: 'mce-item__row' });
+  const body = el('div', { className: 'mce-item__body' });
 
+  const topRow = el('div', { className: 'mce-item__row' });
   const titleInput = el('input', { className: 'kb-input', type: 'text', placeholder: S(cfg.titlePlaceholderKey) });
   titleInput.value = item.title;
-  titleInput.addEventListener('input', () => { item.title = titleInput.value; refreshDerived(kind); });
+  titleInput.addEventListener('input', () => {
+    item.title = titleInput.value;
+    refreshDerived(kind);
+  });
   topRow.appendChild(field(S('field-title'), titleInput, 'grow'));
 
   const styleSelect = el('select', { className: 'kb-select' });
@@ -472,15 +592,12 @@ function buildItemRow(kind, cfg, item, index, total) {
     if (item.titleStyle === lvl) opt.selected = true;
     styleSelect.appendChild(opt);
   });
-  styleSelect.addEventListener('change', () => { item.titleStyle = styleSelect.value; render(); });
+  styleSelect.addEventListener('change', () => { item.titleStyle = styleSelect.value; refreshDerived(kind); });
   topRow.appendChild(field(S('field-title-style'), styleSelect));
+  body.appendChild(topRow);
 
-  row.appendChild(topRow);
-
-  const contentArea = el('textarea', { className: 'kb-textarea mce-content', placeholder: S('ph-content'), rows: 5 });
-  contentArea.value = item.content;
-  contentArea.addEventListener('input', () => { item.content = contentArea.value; refreshDerived(kind); });
-  row.appendChild(field(S('field-content'), contentArea));
+  const editorHost = el('div', { className: 'mce-editor-frame' + (currentTheme() === 'dark' ? ' toastui-editor-dark' : '') });
+  body.appendChild(field(S('field-content'), editorHost));
 
   const toggleLabel = el('label', { className: 'mce-toggle' });
   const toggleInput = el('input', cfg.exclusive
@@ -490,12 +607,124 @@ function buildItemRow(kind, cfg, item, index, total) {
   toggleInput.addEventListener('change', () => {
     if (cfg.exclusive) state.items[kind].forEach(it => { it.isDefault = false; });
     item.isDefault = cfg.exclusive ? true : toggleInput.checked;
-    render();
+    refreshDerived(kind);
   });
   toggleLabel.append(toggleInput, document.createTextNode(S(cfg.defaultFieldKey)));
-  row.appendChild(toggleLabel);
+  body.appendChild(toggleLabel);
 
+  row.appendChild(body);
+
+  // WYSIWYG by default; the mode-switch tab (not hidden) still lets anyone
+  // drop into raw Markdown — MD-CMS accepts full Markdown, so we don't want
+  // to lock that escape hatch away.
+  const editor = new toastui.Editor({
+    el: editorHost,
+    height: '260px',
+    initialEditType: 'wysiwyg',
+    previewStyle: 'tab',
+    initialValue: item.content || '',
+    placeholder: S('ph-content'),
+    usageStatistics: false,   // this app promises nothing is uploaded anywhere (see About) — keep it that way
+    hooks: {
+      // Without a hook, Toast UI embeds pasted/dropped images as base64 data
+      // URIs directly in the Markdown, which would bloat the generated YAML
+      // enormously and doesn't match how a real MD-CMS site references images
+      // (a relative path into its own assets). Ask for that path instead.
+      addImageBlobHook: (_blob, callback) => {
+        const url = window.prompt(S('image-url-prompt'), '');
+        if (url) callback(url, '');
+      },
+    },
+  });
+  editor.on('change', () => {
+    item.content = editor.getMarkdown();
+    refreshDerived(kind);
+  });
+
+  rowRegistry[kind].set(item.id, { root: row, editor, editorHost, indexLabel, summary, upBtn, downBtn, foldBtn });
   return row;
+}
+
+function addItem(kind) {
+  const cfg = BLOCK_TYPES[kind];
+  const item = makeBlankItem();
+  state.items[kind].push(item);
+  cardRefs[kind].itemsHost.appendChild(mountItemRow(kind, cfg, item));
+  syncRowChrome(kind);
+  refreshDerived(kind);
+}
+
+function removeItem(kind, id) {
+  const entry = rowRegistry[kind].get(id);
+  if (!entry) return;
+  try { entry.editor.destroy(); } catch (e) { /* see the window "error" listener above */ }
+  entry.root.remove();
+  rowRegistry[kind].delete(id);
+  state.items[kind] = state.items[kind].filter(it => it.id !== id);
+  syncRowChrome(kind);
+  refreshDerived(kind);
+}
+
+function moveItem(kind, id, dir) {
+  const arr = state.items[kind];
+  const idx = arr.findIndex(it => it.id === id);
+  const j = idx + dir;
+  if (idx < 0 || j < 0 || j >= arr.length) return;
+  [arr[idx], arr[j]] = [arr[j], arr[idx]];
+  // Re-append every row in the new state order — appendChild on an
+  // already-attached node MOVES it, so editor instances are relocated, never
+  // destroyed/recreated.
+  arr.forEach(it => cardRefs[kind].itemsHost.appendChild(rowRegistry[kind].get(it.id).root));
+  syncRowChrome(kind);
+  refreshDerived(kind);
+}
+
+// Updates index labels, move-button boundary state, the count badge, and
+// empty-state visibility. Never touches an editor instance.
+function syncRowChrome(kind) {
+  const items = state.items[kind];
+  cardRefs[kind].countEl.textContent = String(items.length);
+  cardRefs[kind].emptyNote.hidden = items.length > 0;
+  items.forEach((it, i) => {
+    const entry = rowRegistry[kind].get(it.id);
+    entry.indexLabel.textContent = S('item-label', { n: i + 1 });
+    entry.upBtn.disabled = i === 0;
+    entry.downBtn.disabled = i === items.length - 1;
+  });
+}
+
+function toggleCollapsed(kind, id) {
+  const item = state.items[kind].find(it => it.id === id);
+  const entry = rowRegistry[kind].get(id);
+  item.collapsed = !item.collapsed;
+  entry.root.classList.toggle('is-collapsed', item.collapsed);
+  entry.foldBtn.setAttribute('aria-expanded', String(!item.collapsed));
+  entry.summary.textContent = item.collapsed ? item.title : '';
+  updateFoldAllLabel(kind);
+  persistDraft();
+}
+
+function toggleAllCollapsed(kind) {
+  const items = state.items[kind];
+  if (!items.length) return;
+  const nextCollapsed = !items.every(it => it.collapsed);
+  items.forEach(it => {
+    it.collapsed = nextCollapsed;
+    const entry = rowRegistry[kind].get(it.id);
+    entry.root.classList.toggle('is-collapsed', nextCollapsed);
+    entry.foldBtn.setAttribute('aria-expanded', String(!nextCollapsed));
+    entry.summary.textContent = nextCollapsed ? it.title : '';
+  });
+  updateFoldAllLabel(kind);
+  persistDraft();
+}
+
+function updateFoldAllLabel(kind) {
+  const items = state.items[kind];
+  const btn = cardRefs[kind].foldAllBtn;
+  if (!btn) return;
+  const allCollapsed = items.length > 0 && items.every(it => it.collapsed);
+  btn.textContent = allCollapsed ? S('expand-all') : S('collapse-all');
 }
 
 // ── Preview ──────────────────────────────────────────────────────────────────
