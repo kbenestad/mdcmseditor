@@ -3,39 +3,48 @@
   ════════════════════════════════════════════════════════════════════════════
   MD-CMS Editor — a standalone kbenestad app (shares the bizdocs/basis look).
 
-  Builds `tab` and `accordion` code blocks for MD-CMS (github.com/kbenestad/mdcms)
-  that can be pasted directly into a page's Markdown source. Built from the
-  `basis` template — see ./README.md and ./CLAUDE.md for the template itself,
-  ./DESIGN.md for the shared design system this app must stay pixel-identical to.
+  Builds a page body, `tab`/`accordion`/`callout` code blocks for MD-CMS
+  (github.com/kbenestad/mdcms) ready to paste into a page's Markdown source.
+  Built from the `basis` template — see ./README.md and ./CLAUDE.md for the
+  template itself, ./DESIGN.md for the shared design system this app must stay
+  pixel-identical to.
 
   Deliberate deviations from the `basis` default:
-   - This app's "output" is a text snippet, not a PDF, so pdf-lib is NOT loaded
-     (see the CDN block below) and the action row lives inside each block-type
-     panel instead of once globally.
-   - Item content is edited with Toast UI Editor (WYSIWYG, pinned 3.2.2 — see
-     the CDN block) instead of a plain kb-textarea. Because a rich editor
-     instance carries state (undo history, cursor, mode) that must not be
-     thrown away on every unrelated click, item rows are NOT rebuilt on every
-     state change the way the rest of the family's forms are — see "Item row
-     lifecycle" below.
+   - This app's "output" is text (Markdown/YAML), not a PDF, so pdf-lib is NOT
+     loaded (see the CDN block below) and each panel has its own action rows.
+   - Item/page/callout content is edited with Toast UI Editor (WYSIWYG, pinned
+     3.2.2) instead of a plain kb-textarea. A rich editor instance carries
+     state (undo history, cursor, mode) that must not be thrown away on every
+     unrelated click, so rows are NOT rebuilt on every state change the way
+     the rest of the family's forms are — see "Item row lifecycle" below.
   Every other chrome convention (head order, kb-* components, toolbar/header/
   footer assembly) is unchanged.
 
-  Architecture note for future work (see docs/roadmap.md — a full-page MD-CMS
-  editor is the long-term goal): block types are data, not special-cased code.
-  Adding a third block (callout, toc, …) means adding one BLOCK_TYPES entry and
-  a matching per-kind panel builder — see the "Block-type registry" section.
+  Kinds (the switcher's tabs, in order): page, tab, accordion, callout. `tab`
+  and `accordion` share BLOCK_TYPES (an items list + a variant). `callout` has
+  two modes — inline (title/icon/body → one `​```mdcms callout-*​``` block) and
+  reusable (a config.yml `callouts:` message, referenced from pages by key) —
+  see the "Callout" section. `page` is a single Markdown body (frontmatter is
+  intentionally out of scope for now — see docs/roadmap.md).
 
-  Item row lifecycle: unlike the rest of the app (full render() on any state
-  change), item rows are mounted once and patched in place:
-   - typing (title input, WYSIWYG content) mutates state directly and calls
-     refreshDerived(), which only touches the Preview/Output card bodies.
-   - add/remove/reorder/fold operate directly on the DOM (append/remove/move
-     nodes, toggle a class) via the `rowRegistry` — see addItem/removeItem/
-     moveItem/toggleCollapsed. None of them call render().
+  Item row lifecycle: rows (tab/accordion items, callout reusable entries) are
+  mounted once and patched in place:
+   - typing (title/code inputs, WYSIWYG content) mutates state directly and
+     calls refreshDerived(), which only touches the Preview/Output bodies.
+   - add/remove/reorder/fold operate directly on the DOM via a registry (see
+     rowRegistry) — none of them call render().
    - render() (full rebuild, destroying and remounting every editor instance)
-     only runs at boot and on language switch, where every row's labels need
-     to change anyway.
+     only runs at boot and on language switch. Switching the callout mode, or
+     a successful Import/Load-from-clipboard, rebuilds just that one section
+     the same way (see refreshCalloutModeBody / replaceItems) — a "structural"
+     change is allowed a local rebuild; a keystroke never is.
+
+  Content sanitisation: pasting rich/formatted text into Toast UI Editor can
+  introduce characters (non-breaking spaces, BOM, control characters) that
+  js-yaml's dump() cannot represent in clean `content: |` block style, so it
+  silently falls back to a double-quoted, escaped string instead — see
+  sanitizeMarkdown() for the verified-by-testing list of exactly which
+  characters trigger that fallback, and why only those are touched.
   ════════════════════════════════════════════════════════════════════════════
 -->
 <html lang="en">
@@ -56,8 +65,8 @@
 </script>
 
 <!-- CDN libraries: js-yaml (config + snippet YAML) and Toast UI Editor (WYSIWYG
-     item-content editing, pinned so a version bump can't change behaviour
-     under us). No pdf-lib — see the file-header note above. -->
+     content editing, pinned so a version bump can't change behaviour under
+     us). No pdf-lib — see the file-header note above. -->
 <script src="https://unpkg.com/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
 <script src="https://uicdn.toast.com/editor/3.2.2/toastui-editor-all.min.js"></script>
 <link rel="stylesheet" href="https://uicdn.toast.com/editor/3.2.2/toastui-editor.min.css">
@@ -73,10 +82,20 @@
      "mce-" (MD-CMS Editor) so it can never collide with mdcms's own "mdcms-"
      render classes or the shared "kb-" component classes. -->
 <style>
+/* ui.css's .kb-note sets `display: flex` unconditionally, which (being an
+   author-origin rule) outranks the browser's default `[hidden] { display:
+   none }` even at equal specificity — so `noteEl.hidden = true` alone never
+   actually hides a kb-note. This one-line, additive override is the fix
+   (adding the extra attribute selector makes it win on specificity too, so
+   it holds regardless of stylesheet order) — not a fork of the shared rule. */
+.kb-note[hidden] { display: none; }
+
 .mce-panel { padding-top: 18px; }
 
+.mce-import-row { margin-bottom: 18px; }
+
 /* Items card: variant switch row + fold-all control + repeatable item rows. */
-.mce-variant-row { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+.mce-variant-row { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
 .mce-variant-row .kb-seg { margin-left: auto; }
 
 .mce-items-toolbar { display: flex; justify-content: flex-end; margin-bottom: 10px; }
@@ -130,6 +149,8 @@
 .mce-preview-body :is(h1, h2, h3) { margin: 10px 0 4px; }
 .mce-preview-body p { margin-bottom: 8px; }
 .mce-preview-body ul { margin-left: 18px; margin-bottom: 8px; }
+.mce-preview-body .kb-note { margin: 0; }
+.mce-preview-body .kb-note b { display: block; margin-bottom: 4px; }
 
 /* Generated code block */
 .mce-code {
@@ -138,6 +159,10 @@
   line-height: 1.6; white-space: pre-wrap; word-break: break-word;
   max-height: 420px; overflow-y: auto; margin: 0;
 }
+.mce-output-subhead { margin: 18px 0 8px; }
+.mce-output-subhead:first-child { margin-top: 0; }
+
+.mce-entries-title { margin: 4px 0 10px; }
 
 @media (max-width: 600px) {
   .mce-item__row { grid-template-columns: 1fr; }
@@ -158,8 +183,8 @@
 'use strict';
 /* This script is wrapped in an IIFE, so its top-level functions are NOT
  * globals — they cannot collide with app.js. Helpers from app.js ($, el,
- * makeSizeControl, kbAbout, lookupString, makeTabs, uid, markdown, …) are
- * visible in here. */
+ * makeSizeControl, kbAbout, kbAlert, kbModal, lookupString, makeTabs, uid,
+ * markdown, …) are visible in here. */
 
 let CFG;          // parsed config.yml
 let lang = 'en';  // active UI language
@@ -169,8 +194,8 @@ let lang = 'en';  // active UI language
 // that shipped this version (fall back to the commit view if it landed on
 // main without one).
 const APP_VERSION = {
-  version: '0.1.0',
-  commit: '4680cf5',
+  version: '0.2.0',
+  commit: '142eb74',
   prUrl: 'https://github.com/kbenestad/mdcmseditor/pull/1',
   date: '4 July 2026',
 };
@@ -180,8 +205,6 @@ function S(key, vars) {
   return lookupString(CFG['ui-strings'], key, lang, CFG['default-code'], vars);
 }
 
-// Guard against a successful fetch that returns the WRONG bytes — see
-// CLAUDE.md → "Config validation (keep this guard)" for why this exists.
 function assertValidConfig(cfg) {
   if (!cfg || typeof cfg !== 'object' || !cfg.localisation) {
     throw new Error(
@@ -215,20 +238,36 @@ function showAboutModal() {
   return kbAbout({ title: CFG['about-title'], contentMD: CFG['about-content'], closeLabel: CFG['about-button'] });
 }
 
-// ── Block-type registry ─────────────────────────────────────────────────────
-// The single place that knows what an MD-CMS block "kind" is. Adding a new
-// kind (e.g. callout, toc — see docs/roadmap.md) means adding an entry here
-// plus a per-kind panel builder; nothing else in the boot/render/persist
-// pipeline is kind-specific.
-//
-//   variants     — the tag-name suffixes MD-CMS accepts for this kind. The
-//                  editor always emits the explicit variant name, never the
-//                  bare alias (`tab`/`accordion`), so pasted output is
-//                  unambiguous.
-//   exclusive    — true if only one item may carry the "default" flag at a
-//                  time (tabs: exactly one active tab). false if any number
-//                  of items may (accordion: any number open).
-//   defaultValue — the YAML value written for the item(s) carrying the flag.
+// ── Content sanitisation ─────────────────────────────────────────────────────
+// Verified against js-yaml 4.1.0 (see the PR that introduced this): dump()
+// only refuses its clean `content: |` literal-block style — falling back to a
+// double-quoted, backslash-escaped string — for a small, specific set of
+// characters: U+00A0 (non-breaking space), U+FEFF (BOM), U+2028/U+2029 (line/
+// paragraph separators), and C0 control characters (tab, NUL, etc). Every
+// other "weird paste" character tried (curly quotes, em dash, zero-width
+// space/joiner, other Unicode space variants, CJK ideographic space) does NOT
+// break literal style and is left untouched — this is a targeted fix for the
+// reported bug, not a general "clean up my text" pass.
+function sanitizeMarkdown(md) {
+  if (!md) return '';
+  return String(md)
+    .replace(/\r\n?/g, '\n')                                 // CRLF / lone CR -> LF
+    .replace(/[\u2028\u2029]/g, '\n')                        // line/paragraph separator -> LF
+    .replace(/\u00A0/g, ' ')                                  // non-breaking space -> regular space
+    .replace(/\t/g, ' ')                                      // tab -> space (see note below)
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFEFF]/g, ''); // strip remaining control chars + BOM
+  // Tabs become a single space rather than being preserved: these fields are
+  // prose/Markdown, not source code, and a tab surviving into a nested code
+  // fence pasted here would be the rare exception, not the common case.
+}
+
+// ── Block-type registry (tab/accordion) ─────────────────────────────────────
+// variants     — the tag-name suffixes MD-CMS accepts. The editor always
+//                emits the explicit variant name, never the bare alias
+//                (`tab`/`accordion`), so pasted output is unambiguous.
+// exclusive    — true if only one item may carry the "default" flag at a time
+//                (tabs: exactly one active tab). false if any number may.
+// defaultValue — the YAML value written for the item(s) carrying the flag.
 const BLOCK_TYPES = {
   tab: {
     variants: [
@@ -252,6 +291,7 @@ const BLOCK_TYPES = {
   },
 };
 const TITLE_STYLE_LEVELS = ['', '#', '##', '###', '####', '#####', '######'];
+const CALLOUT_TYPES = ['info', 'warning', 'success', 'error'];
 
 function currentVariantDef(kind) {
   const cfg = BLOCK_TYPES[kind];
@@ -274,22 +314,39 @@ function seedItems(kind) {
       ];
 }
 
+function makeBlankCalloutEntry() {
+  return { id: uid(), code: '', title: '', text: '' };
+}
+
 // ── State + persistence ──────────────────────────────────────────────────────
-let state = { variant: {}, items: {} };
+let state = {
+  page: { content: '' },
+  variant: {},
+  items: {},
+  callout: {
+    mode: 'inline',
+    inline: { type: 'info', title: '', icon: '', content: '' },
+    reusable: { key: '', type: 'info', entries: [] },
+  },
+};
 
 // Per-kind DOM refs for chrome that lives OUTSIDE the item rows (count badge,
 // empty-state note, the rows' host container, the fold-all button) — set once
-// in buildItemsCard(), read by add/remove/move/fold so those never need to
-// re-query the DOM or rebuild the card. Per-item refs (including the Toast UI
-// Editor instance) live in rowRegistry, keyed by item id.
-const cardRefs = { tab: {}, accordion: {} };
-const rowRegistry = { tab: new Map(), accordion: new Map() };
+// per panel build, read by add/remove/move/fold so those never need to
+// re-query the DOM or rebuild the card. Per-row refs (including the Toast UI
+// Editor instance) live in rowRegistry, keyed by row id. `page` and
+// `calloutInline` hold exactly one entry each (key 'page' / 'inline') so they
+// share the same destroy-all/theme-sync plumbing as the real per-row maps.
+const cardRefs = { tab: {}, accordion: {}, page: {}, callout: {}, calloutEntries: {} };
+const rowRegistry = { tab: new Map(), accordion: new Map(), page: new Map(), calloutInline: new Map(), calloutEntry: new Map() };
 
 const DRAFT_KEY = 'mdcmseditor-draft';
 
 function persistDraft() {
   try {
-    localStorage.setItem(DRAFT_KEY, JSON.stringify({ variant: state.variant, items: state.items }));
+    localStorage.setItem(DRAFT_KEY, JSON.stringify({
+      variant: state.variant, items: state.items, page: state.page, callout: state.callout,
+    }));
   } catch (e) { /* storage unavailable/full — draft simply won't persist */ }
 }
 
@@ -307,8 +364,8 @@ function loadDraft() {
     if (saved && Array.isArray(saved.items && saved.items[kind]) && saved.items[kind].length) {
       items[kind] = saved.items[kind].map(it => ({
         id: (it && it.id) || uid(),
-        title: (it && typeof it.title === 'string') ? it.title : '',
-        content: (it && typeof it.content === 'string') ? it.content : '',
+        title: (it && typeof it.title === 'string') ? sanitizeMarkdown(it.title) : '',
+        content: (it && typeof it.content === 'string') ? sanitizeMarkdown(it.content) : '',
         isDefault: !!(it && it.isDefault),
         titleStyle: (it && TITLE_STYLE_LEVELS.includes(it.titleStyle)) ? it.titleStyle : '',
         collapsed: !!(it && it.collapsed),
@@ -316,10 +373,42 @@ function loadDraft() {
     }
   });
 
-  return { variant, items };
+  const page = { content: (saved && saved.page && typeof saved.page.content === 'string') ? sanitizeMarkdown(saved.page.content) : '' };
+
+  const callout = {
+    mode: 'inline',
+    inline: { type: 'info', title: '', icon: '', content: '' },
+    reusable: { key: '', type: 'info', entries: [] },
+  };
+  if (saved && saved.callout && typeof saved.callout === 'object') {
+    if (saved.callout.mode === 'reusable') callout.mode = 'reusable';
+    const si = saved.callout.inline;
+    if (si && typeof si === 'object') {
+      callout.inline = {
+        type: CALLOUT_TYPES.includes(si.type) ? si.type : 'info',
+        title: typeof si.title === 'string' ? sanitizeMarkdown(si.title) : '',
+        icon: typeof si.icon === 'string' ? sanitizeMarkdown(si.icon) : '',
+        content: typeof si.content === 'string' ? sanitizeMarkdown(si.content) : '',
+      };
+    }
+    const sr = saved.callout.reusable;
+    if (sr && typeof sr === 'object') {
+      callout.reusable.key = typeof sr.key === 'string' ? sr.key : '';
+      callout.reusable.type = CALLOUT_TYPES.includes(sr.type) ? sr.type : 'info';
+      callout.reusable.entries = Array.isArray(sr.entries) ? sr.entries.map(e => ({
+        id: (e && e.id) || uid(),
+        code: (e && typeof e.code === 'string') ? e.code : '',
+        title: (e && typeof e.title === 'string') ? sanitizeMarkdown(e.title) : '',
+        text: (e && typeof e.text === 'string') ? sanitizeMarkdown(e.text) : '',
+      })) : [];
+    }
+  }
+  if (!callout.reusable.entries.length) callout.reusable.entries = [Object.assign(makeBlankCalloutEntry(), { code: 'en' })];
+
+  return { variant, items, page, callout };
 }
 
-// ── YAML / snippet generation ────────────────────────────────────────────────
+// ── YAML / snippet generation (tab/accordion) ────────────────────────────────
 // A trailing newline (and only one) on each item's content matches how MD-CMS's
 // own docs write these blocks and keeps js-yaml on the clean `content: |` block
 // style rather than the `|-` (strip) variant.
@@ -343,6 +432,45 @@ function buildSnippet(kind) {
   const tagName = currentVariantDef(kind).tagName;
   const yamlBody = jsyaml.dump({ items: buildYamlItems(kind) }, { lineWidth: -1 });
   return '```mdcms ' + tagName + '\n' + yamlBody + '```\n';
+}
+
+// ── Callout generation ────────────────────────────────────────────────────────
+// Inline callouts are NOT YAML-bodied — MD-CMS's own parser treats the fence
+// body as plain `key: value` header lines followed by a body of Markdown (see
+// docs/reference-pages.md in kbenestad/mdcms: "the first non-matching line
+// begins the body"). Crucially, that header-scan is a naive per-line regex
+// with no way to escape a body line that itself happens to look like
+// `key: value` (e.g. a body starting "Note: check this") — MD-CMS's own docs
+// dodge this by always leaving one blank line between the header and the
+// body, which is why we always emit one too, even with no title/icon set.
+function buildCalloutInlineSnippet() {
+  const c = state.callout.inline;
+  const lines = ['```mdcms callout-' + c.type];
+  if (c.title.trim()) lines.push('title: ' + c.title.trim());
+  if (c.icon.trim()) lines.push('icon: ' + c.icon.trim());
+  lines.push('');
+  lines.push(sanitizeMarkdown(c.content || '').replace(/\n+$/, ''));
+  lines.push('```');
+  return lines.join('\n') + '\n';
+}
+
+function buildCalloutReusableFenceSnippet() {
+  const r = state.callout.reusable;
+  return '```mdcms callout-' + r.type + '\nmessage: ' + (r.key.trim() || '') + '\n```\n';
+}
+
+// The entry to paste under the `callouts:` key in config.yml — not a full
+// config.yml redump, since we don't have the rest of the user's file.
+function buildCalloutConfigYaml() {
+  const r = state.callout.reusable;
+  const key = r.key.trim() || 'message-key';
+  const def = { type: r.type };
+  r.entries.forEach(e => {
+    const code = e.code.trim();
+    if (!code) return;
+    def[code] = { title: e.title || '', text: withSingleTrailingNewline(e.text) };
+  });
+  return jsyaml.dump({ [key]: def }, { lineWidth: -1 });
 }
 
 // ── Render ─────────────────────────────────────────────────────────────────
@@ -372,8 +500,8 @@ function destroyAllEditors() {
 }
 
 // Rebuild only the Preview + Output card bodies for one kind, in place. Used
-// by every keystroke/toggle handler so item rows (and their live editors)
-// are never touched.
+// by every keystroke/toggle handler so rows (and their live editors) are
+// never touched.
 function refreshDerived(kind) {
   const previewBody = document.getElementById('mce-preview-' + kind);
   if (previewBody) { previewBody.innerHTML = ''; previewBody.appendChild(buildPreviewBody(kind)); }
@@ -443,6 +571,13 @@ function buildToolbar() {
 // Header: brand wordmark (kBenestad mark + org/tagline) + right-aligned title.
 const MCE_TITLE_ICON = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="8 6 3 12 8 18"/><polyline points="16 6 21 12 16 18"/></svg>';
 
+// Extra semantic icons (success/error) beyond app.js's shared KB_ICON (which
+// only has warn/info) — used by noteBox() and the callout preview.
+const MCE_ICON = {
+  success: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="var(--success)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M8 12l3 3 5-6"/></svg>',
+  error: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="var(--danger)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/></svg>',
+};
+
 function buildHeader() {
   const header = el('header', { className: 'kb-header' });
 
@@ -464,21 +599,17 @@ function buildHeader() {
   return header;
 }
 
-// Top-level switch between the two block kinds. Both panels are always fully
-// built (see the file-header architecture note); makeTabs() just shows one.
+// Top-level switch between the four kinds. All panels are always fully built
+// (see the file-header architecture note); makeTabs() just shows one. Page is
+// first/default per the product decision to make whole-page editing the
+// primary flow long-term (see docs/roadmap.md).
 function buildSwitcher() {
   return makeTabs([
+    { label: S('blocktype-page'), content: buildPagePanel() },
     { label: S('blocktype-tab'), content: buildKindPanel('tab') },
     { label: S('blocktype-accordion'), content: buildKindPanel('accordion') },
+    { label: S('blocktype-callout'), content: buildCalloutPanel() },
   ]);
-}
-
-function buildKindPanel(kind) {
-  const wrap = el('div', { className: 'mce-panel' });
-  wrap.appendChild(buildItemsCard(kind));
-  wrap.appendChild(buildPreviewCard(kind));
-  wrap.appendChild(buildOutputCard(kind));
-  return wrap;
 }
 
 function field(label, input, extraClass) {
@@ -488,15 +619,355 @@ function field(label, input, extraClass) {
 }
 
 function noteBox(variant, text) {
+  const icons = { warning: KB_ICON.warn, info: KB_ICON.info, success: MCE_ICON.success, error: MCE_ICON.error };
   const box = el('div', { className: 'kb-note kb-note--' + variant });
-  const icon = el('span'); icon.innerHTML = variant === 'warning' ? KB_ICON.warn : KB_ICON.info;
+  const icon = el('span'); icon.innerHTML = icons[variant] || KB_ICON.info;
   box.append(icon, el('div', null, text));
   return box;
 }
 
+function makeEditorHost() {
+  return el('div', { className: 'mce-editor-frame' + (currentTheme() === 'dark' ? ' toastui-editor-dark' : '') });
+}
+
+// Shared Toast UI Editor options for every mounted instance: WYSIWYG by
+// default (the mode-switch tab is NOT hidden, so anyone can still drop into
+// raw Markdown — MD-CMS accepts full Markdown, we don't want to lock that
+// escape hatch away), no usage tracking (this app promises nothing is
+// uploaded anywhere — see About), and an image hook that asks for a URL/path
+// instead of embedding a base64 blob (see the hook's own comment).
+function mountEditor(editorHost, initialValue, height, placeholderKey, onChange) {
+  const editor = new toastui.Editor({
+    el: editorHost,
+    height,
+    initialEditType: 'wysiwyg',
+    previewStyle: 'tab',
+    initialValue: initialValue || '',
+    placeholder: S(placeholderKey),
+    usageStatistics: false,
+    hooks: {
+      // Without a hook, Toast UI embeds pasted/dropped images as base64 data
+      // URIs directly in the Markdown, which would bloat the generated output
+      // enormously and doesn't match how a real MD-CMS site references images
+      // (a relative path into its own assets). Ask for that path instead.
+      addImageBlobHook: (_blob, callback) => {
+        const url = window.prompt(S('image-url-prompt'), '');
+        if (url) callback(url, '');
+      },
+    },
+  });
+  editor.on('change', () => onChange(sanitizeMarkdown(editor.getMarkdown())));
+  return editor;
+}
+
+// ── Import / clipboard / validate (shared by every panel) ───────────────────
+function buildImportRow(kind) {
+  const row = el('div', { className: 'kb-actions mce-import-row' });
+  const fileInput = el('input', { type: 'file', accept: '.md,.markdown,text/markdown,text/plain' });
+  fileInput.style.display = 'none';
+  fileInput.addEventListener('change', async () => {
+    const file = fileInput.files[0];
+    fileInput.value = '';
+    if (!file) return;
+    importTextForKind(kind, await file.text());
+  });
+  const importBtn = el('button', { type: 'button', className: 'kb-btn kb-btn--ghost', onClick: () => fileInput.click() }, S('import-md'));
+  const clipboardBtn = el('button', { type: 'button', className: 'kb-btn kb-btn--ghost', onClick: () => importFromClipboard(kind) }, S('load-clipboard'));
+  const validateBtn = el('button', { type: 'button', className: 'kb-btn kb-btn--ghost', onClick: () => runValidation(kind) }, S('validate'));
+  row.append(fileInput, importBtn, clipboardBtn, validateBtn);
+  return row;
+}
+
+async function importFromClipboard(kind) {
+  try {
+    const text = await navigator.clipboard.readText();
+    importTextForKind(kind, text);
+  } catch (e) {
+    kbAlert({ title: S('import-error-title'), message: S('clipboard-read-error') });
+  }
+}
+
+function importTextForKind(kind, rawText) {
+  const text = sanitizeMarkdown(rawText);
+  if (!text.trim()) { kbAlert({ title: S('import-error-title'), message: S('import-empty-text') }); return; }
+  if (kind === 'page') return importPageText(text);
+  if (kind === 'callout') return importCalloutText(text);
+  return importItemsText(kind, text);
+}
+
+function importItemsText(kind, text) {
+  const re = kind === 'tab'
+    ? /```mdcms\s+(tab(?:-underline|-filled)?)\s*\n([\s\S]*?)\n```/
+    : /```mdcms\s+(accordion(?:-underline|-filled)?)\s*\n([\s\S]*?)\n```/;
+  const match = text.match(re);
+  if (!match) {
+    kbAlert({ title: S('import-error-title'), message: S(kind === 'tab' ? 'import-no-tab-block' : 'import-no-accordion-block') });
+    return;
+  }
+  const tagName = match[1];
+  const variant = tagName.endsWith('-filled') ? 'filled' : 'underline';
+  let parsed;
+  try { parsed = jsyaml.load(match[2]); } catch (e) {
+    kbAlert({ title: S('import-error-title'), message: S('import-yaml-error', { error: e.message }) });
+    return;
+  }
+  const cfg = BLOCK_TYPES[kind];
+  const rawItems = (parsed && Array.isArray(parsed.items)) ? parsed.items : [];
+  if (!rawItems.length) { kbAlert({ title: S('import-error-title'), message: S('import-empty-items') }); return; }
+  const items = rawItems.map(it => ({
+    id: uid(),
+    title: sanitizeMarkdown(String((it && it.title) || '')),
+    content: sanitizeMarkdown(String((it && it.content) || '')),
+    isDefault: !!(it && it.default === cfg.defaultValue),
+    titleStyle: (it && TITLE_STYLE_LEVELS.includes(it['title-style'])) ? it['title-style'] : '',
+    collapsed: false,
+  }));
+  replaceItems(kind, variant, items);
+}
+
+// Destroys and remounts every row for one kind with new data — used by
+// Import/Load-from-clipboard. A wholesale replace is a structural change like
+// add/remove, so (per the file-header lifecycle note) a local rebuild here is
+// fine; it just needs to be THIS kind's rebuild, not a full page render().
+function replaceItems(kind, variant, items) {
+  rowRegistry[kind].forEach(entry => { try { entry.editor.destroy(); } catch (e) { /* already gone */ } });
+  rowRegistry[kind].clear();
+  cardRefs[kind].itemsHost.innerHTML = '';
+  state.variant[kind] = variant;
+  state.items[kind] = items;
+  const cfg = BLOCK_TYPES[kind];
+  items.forEach(item => cardRefs[kind].itemsHost.appendChild(mountItemRow(kind, cfg, item)));
+  (cardRefs[kind].variantButtons || []).forEach(({ id, btn }) => btn.classList.toggle('is-active', id === variant));
+  syncRowChrome(kind);
+  refreshDerived(kind);
+}
+
+function importPageText(text) {
+  state.page.content = text;
+  const entry = rowRegistry.page.get('page');
+  if (entry) entry.editor.setMarkdown(text);
+  refreshDerived('page');
+}
+
+// Recognises three shapes pasted/imported for the Callout panel: (1) an
+// inline ```mdcms callout-*``` fence with a title/icon/body, (2) the same
+// fence but with just `message: <key>` (a page-side reference — the actual
+// title/text live in config.yml, not on the page, so only the key/type can
+// be recovered), or (3) a raw YAML `callouts:`-style entry (with or without
+// the wrapping `callouts:` key) — i.e. what this app's own "config.yml
+// entry" output looks like, so round-tripping our own output back in works.
+function importCalloutText(text) {
+  const fenceMatch = text.match(/```mdcms\s+callout-(info|warning|success|error)\s*\n([\s\S]*?)\n```/);
+  if (fenceMatch) {
+    const type = fenceMatch[1];
+    const lines = fenceMatch[2].split('\n');
+    const options = {};
+    let bodyStart = lines.length;
+    for (let i = 0; i < lines.length; i++) {
+      const m = lines[i].match(/^\s*([a-zA-Z-]+)\s*:\s*(.*)$/);
+      if (m) { options[m[1].toLowerCase()] = m[2].trim(); } else { bodyStart = i; break; }
+    }
+    const bodyText = sanitizeMarkdown(lines.slice(bodyStart).join('\n').trim());
+    if (options.message) {
+      state.callout.mode = 'reusable';
+      state.callout.reusable.key = options.message;
+      state.callout.reusable.type = type;
+      refreshCalloutModeBody();
+      refreshDerived('callout');
+      kbAlert({ title: S('import-title'), message: S('import-callout-message-only') });
+    } else {
+      state.callout.mode = 'inline';
+      state.callout.inline = { type, title: sanitizeMarkdown(options.title || ''), icon: sanitizeMarkdown(options.icon || ''), content: bodyText };
+      refreshCalloutModeBody();
+      refreshDerived('callout');
+    }
+    return;
+  }
+
+  let parsed;
+  try { parsed = jsyaml.load(text); } catch (e) {
+    kbAlert({ title: S('import-error-title'), message: S('import-callout-unrecognized') });
+    return;
+  }
+  let entryRoot = parsed;
+  if (parsed && parsed.callouts && typeof parsed.callouts === 'object') entryRoot = parsed.callouts;
+  const key = entryRoot && typeof entryRoot === 'object' ? Object.keys(entryRoot)[0] : null;
+  if (!key) { kbAlert({ title: S('import-error-title'), message: S('import-callout-unrecognized') }); return; }
+  const def = entryRoot[key] || {};
+  const type = CALLOUT_TYPES.includes(def.type) ? def.type : 'info';
+  const entries = Object.keys(def).filter(k => k !== 'type').map(code => ({
+    id: uid(),
+    code,
+    title: sanitizeMarkdown(String((def[code] && def[code].title) || '')),
+    text: sanitizeMarkdown(String((def[code] && def[code].text) || '')),
+  }));
+  state.callout.mode = 'reusable';
+  state.callout.reusable.key = key;
+  state.callout.reusable.type = type;
+  state.callout.reusable.entries = entries.length ? entries : [makeBlankCalloutEntry()];
+  refreshCalloutModeBody();
+  refreshDerived('callout');
+}
+
+// ── Validation ────────────────────────────────────────────────────────────────
+function runValidation(kind) {
+  const issues = validateKind(kind);
+  const body = el('div', { className: 'kb-modal__body' });
+  if (!issues.length) body.appendChild(noteBox('success', S('validate-all-good')));
+  else issues.forEach(issue => body.appendChild(noteBox(issue.level, issue.message)));
+  kbModal({ title: S('validate-title'), bodyNode: body, buttons: [{ label: S('action-close'), value: true, variant: 'kb-btn--primary', autofocus: true }] });
+}
+
+function validateKind(kind) {
+  if (kind === 'page') return validatePage();
+  if (kind === 'callout') return validateCallout();
+  return validateItems(kind);
+}
+
+function validateItems(kind) {
+  const issues = [];
+  const items = state.items[kind];
+  if (!items.length) { issues.push({ level: 'error', message: S('validate-no-items') }); return issues; }
+  items.forEach((it, i) => {
+    if (!it.title.trim()) issues.push({ level: 'error', message: S('validate-missing-title', { n: i + 1 }) });
+    if (!it.content.trim()) issues.push({ level: 'error', message: S('validate-missing-content', { n: i + 1 }) });
+  });
+  const titles = items.map(it => it.title.trim().toLowerCase()).filter(Boolean);
+  if (titles.some((t, i) => titles.indexOf(t) !== i)) issues.push({ level: 'warning', message: S('validate-duplicate-titles') });
+  try {
+    const snippet = buildSnippet(kind);
+    jsyaml.load(snippet.slice(snippet.indexOf('\n') + 1, snippet.lastIndexOf('```')));
+  } catch (e) {
+    issues.push({ level: 'error', message: S('validate-yaml-error', { error: e.message }) });
+  }
+  return issues;
+}
+
+function validatePage() {
+  const issues = [];
+  const content = state.page.content || '';
+  if (!content.trim()) { issues.push({ level: 'error', message: S('validate-page-empty') }); return issues; }
+  if (((content.match(/```/g) || []).length) % 2 !== 0) issues.push({ level: 'warning', message: S('validate-unbalanced-fences') });
+  return issues;
+}
+
+function validateCallout() {
+  const issues = [];
+  const c = state.callout;
+  if (c.mode === 'inline') {
+    if (!c.inline.title.trim() && !c.inline.content.trim()) issues.push({ level: 'error', message: S('validate-callout-empty') });
+    return issues;
+  }
+  if (!c.reusable.key.trim()) issues.push({ level: 'error', message: S('validate-callout-key-required') });
+  else if (!/^[a-zA-Z][\w-]*$/.test(c.reusable.key.trim())) issues.push({ level: 'warning', message: S('validate-callout-key-format') });
+  if (!c.reusable.entries.length) { issues.push({ level: 'error', message: S('validate-callout-no-entries') }); return issues; }
+  c.reusable.entries.forEach((e, i) => {
+    if (!e.code.trim()) issues.push({ level: 'error', message: S('validate-callout-entry-code', { n: i + 1 }) });
+    if (!e.title.trim() && !e.text.trim()) issues.push({ level: 'error', message: S('validate-callout-entry-empty', { n: i + 1 }) });
+  });
+  const codes = c.reusable.entries.map(e => e.code.trim().toLowerCase()).filter(Boolean);
+  if (codes.some((code, i) => codes.indexOf(code) !== i)) issues.push({ level: 'warning', message: S('validate-callout-duplicate-codes') });
+  return issues;
+}
+
+// ── Output helpers shared by every kind ──────────────────────────────────────
+function legacyCopy(text) {
+  const ta = el('textarea', { style: { position: 'fixed', opacity: '0', top: '0', left: '0' } });
+  ta.value = text;
+  document.body.appendChild(ta);
+  ta.select();
+  document.execCommand('copy');
+  ta.remove();
+}
+
+async function copyText(text, btn) {
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(text);
+    else legacyCopy(text);
+  } catch (e) {
+    try { legacyCopy(text); } catch (e2) { return; }
+  }
+  const original = btn.textContent;
+  btn.textContent = S('copied');
+  btn.disabled = true;
+  setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 1500);
+}
+
+function downloadText(text, filename) {
+  const blob = new Blob([text], { type: 'text/markdown' });
+  const url = URL.createObjectURL(blob);
+  const a = el('a', { href: url, download: filename }); a.click();
+  URL.revokeObjectURL(url);
+}
+
+function buildCodeBlockWithActions(text, filename, hintKey) {
+  const container = el('div');
+  const pre = el('pre', { className: 'mce-code' });
+  pre.appendChild(el('code', null, text));
+  container.appendChild(pre);
+  if (hintKey) container.appendChild(el('p', { className: 'mce-hint' }, S(hintKey)));
+  const actions = el('div', { className: 'kb-actions' });
+  actions.append(
+    el('button', { className: 'kb-btn kb-btn--ghost', onClick: () => downloadText(text, filename) }, S('download-snippet')),
+    el('button', { className: 'kb-btn kb-btn--primary', onClick: (e) => copyText(text, e.currentTarget) }, S('copy'))
+  );
+  container.appendChild(actions);
+  return container;
+}
+
+// ── Preview / Output dispatch ─────────────────────────────────────────────────
+function buildPreviewCard(kind) {
+  const card = el('div', { className: 'kb-card' });
+  card.appendChild(el('div', { className: 'kb-card__title' }, S('preview-title')));
+  const body = el('div', { id: 'mce-preview-' + kind, className: 'mce-preview-body' });
+  body.appendChild(buildPreviewBody(kind));
+  card.appendChild(body);
+  const noteKey = kind === 'page' ? 'preview-note-page' : kind === 'callout' ? 'preview-note-callout' : 'preview-note-items';
+  card.appendChild(el('p', { className: 'mce-hint' }, S(noteKey)));
+  return card;
+}
+
+function buildPreviewBody(kind) {
+  if (kind === 'page') return buildPagePreviewBody();
+  if (kind === 'callout') return buildCalloutPreviewBody();
+  return buildItemsPreviewBody(kind);
+}
+
+function buildOutputCard(kind) {
+  const card = el('div', { className: 'kb-card' });
+  card.appendChild(el('div', { className: 'kb-card__title' }, S('output-title')));
+  const body = el('div', { id: 'mce-output-' + kind });
+  body.appendChild(buildOutputBody(kind));
+  card.appendChild(body);
+  return card;
+}
+
+function buildOutputBody(kind) {
+  if (kind === 'page') return buildPageOutputBody();
+  if (kind === 'callout') return buildCalloutOutputBody();
+  return buildItemsOutputBody(kind);
+}
+
+function mdNode(content) {
+  const div = document.createElement('div');
+  div.innerHTML = markdown(content || '');
+  return div;
+}
+
+// ── Tab / Accordion panel ─────────────────────────────────────────────────────
+function buildKindPanel(kind) {
+  const wrap = el('div', { className: 'mce-panel' });
+  wrap.appendChild(buildImportRow(kind));
+  wrap.appendChild(buildItemsCard(kind));
+  wrap.appendChild(buildPreviewCard(kind));
+  wrap.appendChild(buildOutputCard(kind));
+  return wrap;
+}
+
 // "Style" row (Underline/Filled) + fold-all + the repeatable item list + add.
-// Builds cardRefs[kind] (count badge, empty note, items host, fold-all button)
-// once; add/remove/move/fold below patch those refs directly afterwards.
+// Builds cardRefs[kind] (count badge, empty note, items host, fold-all button,
+// variant buttons) once; add/remove/move/fold/replace below patch those refs
+// directly afterwards.
 function buildItemsCard(kind) {
   const cfg = BLOCK_TYPES[kind];
   const items = state.items[kind];
@@ -510,6 +981,7 @@ function buildItemsCard(kind) {
   const variantRow = el('div', { className: 'mce-variant-row' });
   variantRow.appendChild(el('span', { className: 'kb-label' }, S('variant-label')));
   const seg = el('div', { className: 'kb-seg', role: 'group', 'aria-label': S('variant-label') });
+  const variantButtons = [];
   cfg.variants.forEach(v => {
     const btn = el('button', { type: 'button' }, S('variant-' + v.id));
     if (state.variant[kind] === v.id) btn.classList.add('is-active');
@@ -520,6 +992,7 @@ function buildItemsCard(kind) {
       refreshDerived(kind);
     });
     seg.appendChild(btn);
+    variantButtons.push({ id: v.id, btn });
   });
   variantRow.appendChild(seg);
   card.appendChild(variantRow);
@@ -542,7 +1015,7 @@ function buildItemsCard(kind) {
   addBtn.append(plus, el('span', null, S('add-item')));
   card.appendChild(addBtn);
 
-  cardRefs[kind] = { countEl, emptyNote, itemsHost, foldAllBtn };
+  cardRefs[kind] = { countEl, emptyNote, itemsHost, foldAllBtn, variantButtons };
   updateFoldAllLabel(kind);
 
   return card;
@@ -579,10 +1052,7 @@ function mountItemRow(kind, cfg, item) {
   const topRow = el('div', { className: 'mce-item__row' });
   const titleInput = el('input', { className: 'kb-input', type: 'text', placeholder: S(cfg.titlePlaceholderKey) });
   titleInput.value = item.title;
-  titleInput.addEventListener('input', () => {
-    item.title = titleInput.value;
-    refreshDerived(kind);
-  });
+  titleInput.addEventListener('input', () => { item.title = sanitizeMarkdown(titleInput.value); refreshDerived(kind); });
   topRow.appendChild(field(S('field-title'), titleInput, 'grow'));
 
   const styleSelect = el('select', { className: 'kb-select' });
@@ -596,7 +1066,7 @@ function mountItemRow(kind, cfg, item) {
   topRow.appendChild(field(S('field-title-style'), styleSelect));
   body.appendChild(topRow);
 
-  const editorHost = el('div', { className: 'mce-editor-frame' + (currentTheme() === 'dark' ? ' toastui-editor-dark' : '') });
+  const editorHost = makeEditorHost();
   body.appendChild(field(S('field-content'), editorHost));
 
   const toggleLabel = el('label', { className: 'mce-toggle' });
@@ -614,32 +1084,7 @@ function mountItemRow(kind, cfg, item) {
 
   row.appendChild(body);
 
-  // WYSIWYG by default; the mode-switch tab (not hidden) still lets anyone
-  // drop into raw Markdown — MD-CMS accepts full Markdown, so we don't want
-  // to lock that escape hatch away.
-  const editor = new toastui.Editor({
-    el: editorHost,
-    height: '260px',
-    initialEditType: 'wysiwyg',
-    previewStyle: 'tab',
-    initialValue: item.content || '',
-    placeholder: S('ph-content'),
-    usageStatistics: false,   // this app promises nothing is uploaded anywhere (see About) — keep it that way
-    hooks: {
-      // Without a hook, Toast UI embeds pasted/dropped images as base64 data
-      // URIs directly in the Markdown, which would bloat the generated YAML
-      // enormously and doesn't match how a real MD-CMS site references images
-      // (a relative path into its own assets). Ask for that path instead.
-      addImageBlobHook: (_blob, callback) => {
-        const url = window.prompt(S('image-url-prompt'), '');
-        if (url) callback(url, '');
-      },
-    },
-  });
-  editor.on('change', () => {
-    item.content = editor.getMarkdown();
-    refreshDerived(kind);
-  });
+  const editor = mountEditor(editorHost, item.content, '260px', 'ph-content', (md) => { item.content = md; refreshDerived(kind); });
 
   rowRegistry[kind].set(item.id, { root: row, editor, editorHost, indexLabel, summary, upBtn, downBtn, foldBtn });
   return row;
@@ -727,24 +1172,7 @@ function updateFoldAllLabel(kind) {
   btn.textContent = allCollapsed ? S('expand-all') : S('collapse-all');
 }
 
-// ── Preview ──────────────────────────────────────────────────────────────────
-function mdNode(content) {
-  const div = document.createElement('div');
-  div.innerHTML = markdown(content || '');
-  return div;
-}
-
-function buildPreviewCard(kind) {
-  const card = el('div', { className: 'kb-card' });
-  card.appendChild(el('div', { className: 'kb-card__title' }, S('preview-title')));
-  const body = el('div', { id: 'mce-preview-' + kind, className: 'mce-preview-body' });
-  body.appendChild(buildPreviewBody(kind));
-  card.appendChild(body);
-  card.appendChild(el('p', { className: 'mce-hint' }, S('preview-note')));
-  return card;
-}
-
-function buildPreviewBody(kind) {
+function buildItemsPreviewBody(kind) {
   const items = state.items[kind];
   if (!items.length) return el('p', { className: 'mce-hint' }, S('empty-items'));
 
@@ -791,72 +1219,293 @@ function buildPreviewBody(kind) {
   return wrap;
 }
 
-// ── Output (generated code + actions) ────────────────────────────────────────
-function buildOutputCard(kind) {
-  const card = el('div', { className: 'kb-card' });
-  card.appendChild(el('div', { className: 'kb-card__title' }, S('output-title')));
-  const body = el('div', { id: 'mce-output-' + kind });
-  body.appendChild(buildOutputBody(kind));
-  card.appendChild(body);
-  return card;
-}
-
-function buildOutputBody(kind) {
+function buildItemsOutputBody(kind) {
   const items = state.items[kind];
   const container = el('div');
-
-  if (!items.length) {
-    container.appendChild(noteBox('info', S('output-empty')));
-    return container;
-  }
+  if (!items.length) { container.appendChild(noteBox('info', S('output-empty'))); return container; }
   const incomplete = items.some(it => !it.title.trim() || !it.content.trim());
   if (incomplete) container.appendChild(noteBox('warning', S('warn-incomplete')));
-
-  const pre = el('pre', { className: 'mce-code' });
-  pre.appendChild(el('code', null, buildSnippet(kind)));
-  container.appendChild(pre);
-  container.appendChild(el('p', { className: 'mce-hint' }, S('output-hint')));
-
-  const actions = el('div', { className: 'kb-actions' });
-  actions.append(
-    el('button', { className: 'kb-btn kb-btn--ghost', onClick: () => downloadSnippet(kind) }, S('download-snippet')),
-    el('button', { className: 'kb-btn kb-btn--primary', onClick: (e) => copySnippet(kind, e.currentTarget) }, S('copy'))
-  );
-  container.appendChild(actions);
-
+  const filename = 'mdcms-' + currentVariantDef(kind).tagName + '.md';
+  container.appendChild(buildCodeBlockWithActions(buildSnippet(kind), filename, 'output-hint'));
   return container;
 }
 
-function legacyCopy(text) {
-  const ta = el('textarea', { style: { position: 'fixed', opacity: '0', top: '0', left: '0' } });
-  ta.value = text;
-  document.body.appendChild(ta);
-  ta.select();
-  document.execCommand('copy');
-  ta.remove();
+// ── Page panel ─────────────────────────────────────────────────────────────
+function buildPagePanel() {
+  const wrap = el('div', { className: 'mce-panel' });
+  wrap.appendChild(buildImportRow('page'));
+  wrap.appendChild(buildPageContentCard());
+  wrap.appendChild(buildPreviewCard('page'));
+  wrap.appendChild(buildOutputCard('page'));
+  return wrap;
 }
 
-async function copySnippet(kind, btn) {
-  const text = buildSnippet(kind);
-  try {
-    if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(text);
-    else legacyCopy(text);
-  } catch (e) {
-    try { legacyCopy(text); } catch (e2) { return; }
+function buildPageContentCard() {
+  const card = el('div', { className: 'kb-card' });
+  card.appendChild(el('div', { className: 'kb-card__title' }, S('page-content-title')));
+  const editorHost = makeEditorHost();
+  card.appendChild(editorHost);
+  const editor = mountEditor(editorHost, state.page.content, '420px', 'ph-page-content', (md) => {
+    state.page.content = md;
+    refreshDerived('page');
+  });
+  rowRegistry.page.set('page', { root: editorHost, editor, editorHost });
+  return card;
+}
+
+function buildPagePreviewBody() {
+  const content = state.page.content || '';
+  if (!content.trim()) return el('p', { className: 'mce-hint' }, S('empty-page'));
+  return mdNode(content);
+}
+
+function buildPageOutputBody() {
+  const content = state.page.content || '';
+  const container = el('div');
+  if (!content.trim()) { container.appendChild(noteBox('info', S('output-empty-page'))); return container; }
+  container.appendChild(buildCodeBlockWithActions(content, 'page.md', 'output-hint-page'));
+  return container;
+}
+
+// ── Callout panel ─────────────────────────────────────────────────────────────
+function buildCalloutPanel() {
+  const wrap = el('div', { className: 'mce-panel' });
+  wrap.appendChild(buildImportRow('callout'));
+  wrap.appendChild(buildCalloutCard());
+  wrap.appendChild(buildPreviewCard('callout'));
+  wrap.appendChild(buildOutputCard('callout'));
+  return wrap;
+}
+
+function buildCalloutCard() {
+  const card = el('div', { className: 'kb-card' });
+  card.appendChild(el('div', { className: 'kb-card__title' }, S('callout-title')));
+
+  const modeRow = el('div', { className: 'mce-variant-row' });
+  modeRow.appendChild(el('span', { className: 'kb-label' }, S('callout-mode-label')));
+  const modeSeg = el('div', { className: 'kb-seg', role: 'group', 'aria-label': S('callout-mode-label') });
+  const modeButtons = [];
+  [['inline', 'callout-mode-inline'], ['reusable', 'callout-mode-reusable']].forEach(([modeId, key]) => {
+    const btn = el('button', { type: 'button' }, S(key));
+    if (state.callout.mode === modeId) btn.classList.add('is-active');
+    btn.addEventListener('click', () => {
+      if (state.callout.mode === modeId) return;
+      state.callout.mode = modeId;
+      refreshCalloutModeBody();
+      refreshDerived('callout');
+    });
+    modeSeg.appendChild(btn);
+    modeButtons.push({ id: modeId, btn });
+  });
+  modeRow.appendChild(modeSeg);
+  card.appendChild(modeRow);
+
+  const modeBody = el('div', { id: 'mce-callout-mode-body' });
+  card.appendChild(modeBody);
+  cardRefs.callout = { modeBody, modeButtons };
+  mountCalloutModeBody();
+
+  return card;
+}
+
+// Switching mode (by click OR by a successful import setting state.callout.mode
+// directly) rebuilds just this section — see the file-header lifecycle note on
+// why that's fine for a structural change. Always resyncs the mode buttons'
+// active state too, since programmatic mode changes (import) don't go through
+// the click handler that would otherwise do it.
+function refreshCalloutModeBody() {
+  rowRegistry.calloutInline.forEach(entry => { try { entry.editor.destroy(); } catch (e) {} });
+  rowRegistry.calloutInline.clear();
+  rowRegistry.calloutEntry.forEach(entry => { try { entry.editor.destroy(); } catch (e) {} });
+  rowRegistry.calloutEntry.clear();
+  cardRefs.callout.modeBody.innerHTML = '';
+  mountCalloutModeBody();
+  cardRefs.callout.modeButtons.forEach(({ id, btn }) => btn.classList.toggle('is-active', id === state.callout.mode));
+}
+
+function mountCalloutModeBody() {
+  const host = cardRefs.callout.modeBody;
+  host.appendChild(state.callout.mode === 'inline' ? buildCalloutInlineFields() : buildCalloutReusableFields());
+}
+
+function buildCalloutTypeSelect(getType, setType) {
+  const typeSelect = el('select', { className: 'kb-select' });
+  CALLOUT_TYPES.forEach(t => {
+    const opt = el('option', { value: t }, S('callout-type-' + t));
+    if (getType() === t) opt.selected = true;
+    typeSelect.appendChild(opt);
+  });
+  typeSelect.addEventListener('change', () => { setType(typeSelect.value); refreshDerived('callout'); });
+  return typeSelect;
+}
+
+function buildCalloutInlineFields() {
+  const wrap = el('div');
+  const c = state.callout.inline;
+
+  const topRow = el('div', { className: 'mce-item__row' });
+  topRow.appendChild(field(S('callout-type-label'), buildCalloutTypeSelect(() => c.type, (v) => { c.type = v; })));
+
+  const titleInput = el('input', { className: 'kb-input', type: 'text', placeholder: S('ph-callout-title') });
+  titleInput.value = c.title;
+  titleInput.addEventListener('input', () => { c.title = sanitizeMarkdown(titleInput.value); refreshDerived('callout'); });
+  topRow.appendChild(field(S('callout-field-title'), titleInput, 'grow'));
+  wrap.appendChild(topRow);
+
+  const iconInput = el('input', { className: 'kb-input', type: 'text', placeholder: S('ph-callout-icon') });
+  iconInput.value = c.icon;
+  iconInput.addEventListener('input', () => { c.icon = sanitizeMarkdown(iconInput.value); refreshDerived('callout'); });
+  wrap.appendChild(field(S('callout-field-icon'), iconInput));
+
+  const editorHost = makeEditorHost();
+  wrap.appendChild(field(S('callout-field-content'), editorHost));
+  const editor = mountEditor(editorHost, c.content, '220px', 'ph-content', (md) => { c.content = md; refreshDerived('callout'); });
+  rowRegistry.calloutInline.set('inline', { root: editorHost, editor, editorHost });
+
+  return wrap;
+}
+
+function buildCalloutReusableFields() {
+  const wrap = el('div');
+  const r = state.callout.reusable;
+
+  const topRow = el('div', { className: 'mce-item__row' });
+  topRow.appendChild(field(S('callout-type-label'), buildCalloutTypeSelect(() => r.type, (v) => { r.type = v; })));
+
+  const keyInput = el('input', { className: 'kb-input', type: 'text', placeholder: S('ph-callout-key') });
+  keyInput.value = r.key;
+  keyInput.addEventListener('input', () => { r.key = sanitizeMarkdown(keyInput.value); refreshDerived('callout'); });
+  topRow.appendChild(field(S('callout-field-key'), keyInput, 'grow'));
+  wrap.appendChild(topRow);
+
+  wrap.appendChild(el('div', { className: 'kb-label mce-entries-title' }, S('callout-entries-title')));
+
+  const emptyNote = noteBox('info', S('callout-empty-entries'));
+  emptyNote.hidden = r.entries.length > 0;
+  wrap.appendChild(emptyNote);
+
+  const entriesHost = el('div', { className: 'mce-items' });
+  r.entries.forEach(entry => entriesHost.appendChild(mountCalloutEntryRow(entry)));
+  wrap.appendChild(entriesHost);
+
+  const addBtn = el('button', { type: 'button', className: 'mce-add-btn', onClick: () => addCalloutEntry() });
+  addBtn.append(el('span', { className: 'kb-circbtn', 'aria-hidden': 'true' }, '+'), el('span', null, S('callout-add-entry')));
+  wrap.appendChild(addBtn);
+
+  cardRefs.calloutEntries = { emptyNote, entriesHost };
+  return wrap;
+}
+
+function mountCalloutEntryRow(entry) {
+  const row = el('div', { className: 'mce-item' });
+  const head = el('div', { className: 'mce-item__head' });
+  const indexLabel = el('span', { className: 'mce-item__index' });
+  head.appendChild(indexLabel);
+  const move = el('div', { className: 'mce-item__move' });
+  const upBtn = el('button', { type: 'button', className: 'kb-iconbtn', 'aria-label': S('move-up'), onClick: () => moveCalloutEntry(entry.id, -1) }, '↑');
+  const downBtn = el('button', { type: 'button', className: 'kb-iconbtn', 'aria-label': S('move-down'), onClick: () => moveCalloutEntry(entry.id, 1) }, '↓');
+  const rmBtn = el('button', { type: 'button', className: 'kb-circbtn kb-circbtn--rm', 'aria-label': S('remove-item'), onClick: () => removeCalloutEntry(entry.id) }, '−');
+  move.append(upBtn, downBtn, rmBtn);
+  head.appendChild(move);
+  row.appendChild(head);
+
+  const topRow = el('div', { className: 'mce-item__row' });
+  const codeInput = el('input', { className: 'kb-input', type: 'text', placeholder: S('ph-callout-code') });
+  codeInput.value = entry.code;
+  codeInput.addEventListener('input', () => { entry.code = sanitizeMarkdown(codeInput.value); refreshDerived('callout'); });
+  topRow.appendChild(field(S('callout-field-code'), codeInput));
+
+  const titleInput = el('input', { className: 'kb-input', type: 'text', placeholder: S('ph-callout-title') });
+  titleInput.value = entry.title;
+  titleInput.addEventListener('input', () => { entry.title = sanitizeMarkdown(titleInput.value); refreshDerived('callout'); });
+  topRow.appendChild(field(S('callout-field-entry-title'), titleInput, 'grow'));
+  row.appendChild(topRow);
+
+  const editorHost = makeEditorHost();
+  row.appendChild(field(S('callout-field-entry-text'), editorHost));
+  const editor = mountEditor(editorHost, entry.text, '180px', 'ph-content', (md) => { entry.text = md; refreshDerived('callout'); });
+
+  rowRegistry.calloutEntry.set(entry.id, { root: row, editor, editorHost, indexLabel, upBtn, downBtn });
+  return row;
+}
+
+function addCalloutEntry() {
+  const entry = makeBlankCalloutEntry();
+  state.callout.reusable.entries.push(entry);
+  cardRefs.calloutEntries.entriesHost.appendChild(mountCalloutEntryRow(entry));
+  syncCalloutEntryChrome();
+  refreshDerived('callout');
+}
+
+function removeCalloutEntry(id) {
+  const entry = rowRegistry.calloutEntry.get(id);
+  if (!entry) return;
+  try { entry.editor.destroy(); } catch (e) {}
+  entry.root.remove();
+  rowRegistry.calloutEntry.delete(id);
+  state.callout.reusable.entries = state.callout.reusable.entries.filter(e => e.id !== id);
+  syncCalloutEntryChrome();
+  refreshDerived('callout');
+}
+
+function moveCalloutEntry(id, dir) {
+  const arr = state.callout.reusable.entries;
+  const idx = arr.findIndex(e => e.id === id);
+  const j = idx + dir;
+  if (idx < 0 || j < 0 || j >= arr.length) return;
+  [arr[idx], arr[j]] = [arr[j], arr[idx]];
+  arr.forEach(e => cardRefs.calloutEntries.entriesHost.appendChild(rowRegistry.calloutEntry.get(e.id).root));
+  syncCalloutEntryChrome();
+  refreshDerived('callout');
+}
+
+function syncCalloutEntryChrome() {
+  const entries = state.callout.reusable.entries;
+  cardRefs.calloutEntries.emptyNote.hidden = entries.length > 0;
+  entries.forEach((e, i) => {
+    const entry = rowRegistry.calloutEntry.get(e.id);
+    entry.indexLabel.textContent = S('callout-entry-label', { n: i + 1 });
+    entry.upBtn.disabled = i === 0;
+    entry.downBtn.disabled = i === entries.length - 1;
+  });
+}
+
+function calloutPreviewBox(type, title, content) {
+  const icons = { info: KB_ICON.info, warning: KB_ICON.warn, success: MCE_ICON.success, error: MCE_ICON.error };
+  const box = el('div', { className: 'kb-note kb-note--' + type });
+  const iconSpan = el('span'); iconSpan.innerHTML = icons[type] || KB_ICON.info;
+  const body = el('div');
+  if (title.trim()) body.appendChild(el('b', null, title));
+  body.appendChild(mdNode(content));
+  box.append(iconSpan, body);
+  return box;
+}
+
+function buildCalloutPreviewBody() {
+  const c = state.callout;
+  if (c.mode === 'inline') {
+    if (!c.inline.title.trim() && !c.inline.content.trim()) return el('p', { className: 'mce-hint' }, S('empty-items'));
+    return calloutPreviewBox(c.inline.type, c.inline.title, c.inline.content);
   }
-  const original = btn.textContent;
-  btn.textContent = S('copied');
-  btn.disabled = true;
-  setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 1500);
+  const first = c.reusable.entries[0];
+  if (!first || (!first.title.trim() && !first.text.trim())) return el('p', { className: 'mce-hint' }, S('empty-items'));
+  return calloutPreviewBox(c.reusable.type, first.title, first.text);
 }
 
-function downloadSnippet(kind) {
-  const text = buildSnippet(kind);
-  const filename = 'mdcms-' + currentVariantDef(kind).tagName + '.md';
-  const blob = new Blob([text], { type: 'text/markdown' });
-  const url = URL.createObjectURL(blob);
-  const a = el('a', { href: url, download: filename }); a.click();
-  URL.revokeObjectURL(url);
+function buildCalloutOutputBody() {
+  const c = state.callout;
+  const container = el('div');
+  if (c.mode === 'inline') {
+    if (!c.inline.title.trim() && !c.inline.content.trim()) { container.appendChild(noteBox('info', S('output-empty'))); return container; }
+    container.appendChild(buildCodeBlockWithActions(buildCalloutInlineSnippet(), 'mdcms-callout-' + c.inline.type + '.md', 'output-hint'));
+    return container;
+  }
+  if (!c.reusable.key.trim() || !c.reusable.entries.length) { container.appendChild(noteBox('info', S('output-empty'))); return container; }
+  container.appendChild(el('div', { className: 'kb-label mce-output-subhead' }, S('output-page-snippet')));
+  container.appendChild(buildCodeBlockWithActions(buildCalloutReusableFenceSnippet(), 'mdcms-callout-' + c.reusable.type + '.md', 'output-hint'));
+  container.appendChild(el('div', { className: 'kb-label mce-output-subhead' }, S('callout-config-output-title')));
+  container.appendChild(buildCodeBlockWithActions(buildCalloutConfigYaml(), (c.reusable.key.trim() || 'message-key') + '.callout.yml', 'callout-config-output-hint'));
+  return container;
 }
 
 // Footer: kBenestad mark · © · repo link · About  —  version block (right).
@@ -899,6 +1548,8 @@ try {
   const draft = loadDraft();
   state.variant = draft.variant;
   state.items = draft.items;
+  state.page = draft.page;
+  state.callout = draft.callout;
   render();
 } catch (e) {
   document.getElementById('app').innerHTML =

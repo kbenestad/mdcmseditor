@@ -1,12 +1,12 @@
 # =============================================================================
 # MD-CMS Editor — Configuration
 # =============================================================================
-# MD-CMS Editor builds tab and accordion code blocks for MD-CMS
-# (https://github.com/kbenestad/mdcms) that can be pasted directly into a
-# page's Markdown source. It shares the bizdocs/basis chrome, but — unlike a
-# PDF-producing app — its "output" is a text snippet, so there is no page-size,
-# font, or logo configuration here; see CLAUDE.md for why those keys were
-# dropped from this app's config.
+# MD-CMS Editor builds a page body, tab/accordion/callout code blocks for
+# MD-CMS (https://github.com/kbenestad/mdcms) ready to paste into a page's
+# Markdown source (or, for reusable callouts, into config.yml). It shares the
+# bizdocs/basis chrome, but — unlike a PDF-producing app — its "output" is
+# text, so there is no page-size, font, or logo configuration here; see
+# CLAUDE.md for why those keys were dropped from this app's config.
 
 # Organization
 organization:                # leave blank to show the kBenestad wordmark
@@ -33,9 +33,10 @@ localisation:
       button: "Close"
       content: |
         ### MD-CMS Editor
-        Builds **tab** and **accordion** blocks for MD-CMS — fill in items on
-        the left, preview them on the right, then copy the generated
-        ` ```mdcms ` code block straight into your page's Markdown source.
+        Builds a page body, plus **tab**, **accordion**, and **callout**
+        blocks for MD-CMS — fill in the fields, preview them, then copy the
+        generated code straight into your page's Markdown source (or, for
+        reusable callouts, into config.yml).
 
         Your draft is kept in this browser's local storage, so it survives a
         reload — nothing is uploaded anywhere.
@@ -43,10 +44,12 @@ localisation:
         **MD-CMS:** [kbenestad/mdcms](https://github.com/kbenestad/mdcms)
         **Design system:** [kbenestad/bizdocs](https://github.com/kbenestad/bizdocs)
     ui:
-      subtitle: "Tab & accordion block generator for MD-CMS"
+      subtitle: "Page, tab, accordion & callout editor for MD-CMS"
 
+      blocktype-page: "Page"
       blocktype-tab: "Tabs"
       blocktype-accordion: "Accordion"
+      blocktype-callout: "Callout"
 
       variant-label: "Style"
       variant-underline: "Underline"
@@ -72,19 +75,87 @@ localisation:
       collapse-all: "Collapse all"
       expand-all: "Expand all"
       empty-items: "No items yet — add one to get started."
+      empty-page: "Write some content to see it previewed here."
       image-url-prompt: "Image URL or relative path (e.g. images/photo.png):"
 
       preview-title: "Preview"
-      preview-note: "Simplified preview: shows the tab/accordion interaction, but colours, spacing, and some advanced Markdown (tables, code blocks) come from your site's own mdcms theme, not this editor."
+      preview-note-items: "Simplified preview: shows the tab/accordion interaction, but colours, spacing, and some advanced Markdown (tables, code blocks) come from your site's own mdcms theme, not this editor."
+      preview-note-page: "Simplified preview: rendered with a minimal Markdown renderer, not your site's own mdcms theme — advanced Markdown (tables, code blocks) may not render exactly the same here."
+      preview-note-callout: "Simplified preview: colours come from the shared kb-note styles, not your site's own mdcms theme. Reusable callouts preview the first category entry only."
 
       output-title: "Generated code"
       output-hint: "Paste this block directly into your MD-CMS page."
-      output-empty: "Add at least one item with a title and content to generate code."
+      output-hint-page: "This is your page's Markdown body."
+      output-empty: "Fill in the fields above to generate code."
+      output-empty-page: "Write some content above to generate output."
+      output-page-snippet: "Page snippet"
       warn-incomplete: "Give every item a title and content before copying."
 
       download-snippet: "Download .md"
       copy: "Copy to clipboard"
       copied: "Copied!"
+
+      import-md: "Import .md"
+      load-clipboard: "Load from clipboard"
+      validate: "Validate"
+      action-close: "Close"
+      import-title: "Import"
+      import-error-title: "Import failed"
+      import-empty-text: "That file or clipboard content is empty."
+      clipboard-read-error: "Couldn't read the clipboard. Your browser may need permission, or the content isn't plain text."
+      import-no-tab-block: "No tab block (```mdcms tab-...```) was found in the imported text."
+      import-no-accordion-block: "No accordion block (```mdcms accordion-...```) was found in the imported text."
+      import-yaml-error: "Couldn't parse the block's YAML: {error}"
+      import-empty-items: "The imported block has no items."
+      import-callout-message-only: "Imported the message key and type. The title and text for each category live in your config.yml, not on the page — add them below."
+      import-callout-unrecognized: "Couldn't recognise this as a callout block or a reusable-message YAML entry."
+
+      validate-title: "Validation"
+      validate-all-good: "Looks good — no issues found."
+      validate-no-items: "Add at least one item."
+      validate-missing-title: "Item {n} has no title."
+      validate-missing-content: "Item {n} has no content."
+      validate-duplicate-titles: "Two or more items share the same title."
+      validate-yaml-error: "The generated YAML failed to parse back: {error}"
+      validate-page-empty: "The page has no content."
+      validate-unbalanced-fences: "Unbalanced ``` fences — check your code blocks."
+      validate-callout-empty: "Add a title or body for this callout."
+      validate-callout-key-required: "A message key is required."
+      validate-callout-key-format: "The key should start with a letter and contain only letters, numbers, - or _ (avoids needing to quote it in config.yml)."
+      validate-callout-no-entries: "Add at least one category entry."
+      validate-callout-entry-code: "Entry {n} has no category code."
+      validate-callout-entry-empty: "Entry {n} has no title or text."
+      validate-callout-duplicate-codes: "Two or more entries share the same category code."
+
+      page-content-title: "Page content"
+      ph-page-content: "Write the page's Markdown body here…"
+
+      callout-title: "Callout"
+      callout-mode-label: "Mode"
+      callout-mode-inline: "Inline"
+      callout-mode-reusable: "Reusable (config.yml)"
+      callout-type-label: "Type"
+      callout-type-info: "Info"
+      callout-type-warning: "Warning"
+      callout-type-success: "Success"
+      callout-type-error: "Error"
+      callout-field-title: "Title (optional)"
+      ph-callout-title: "e.g. Heads up"
+      callout-field-icon: "Icon (optional)"
+      ph-callout-icon: "e.g. lightbulb — an SVG name from your site's assets/icons/"
+      callout-field-content: "Body"
+      callout-field-key: "Message key"
+      ph-callout-key: "e.g. aitranslation"
+      callout-entries-title: "Category entries"
+      callout-empty-entries: "No category entries yet — add one to get started."
+      callout-field-code: "Category code"
+      ph-callout-code: "e.g. en"
+      callout-field-entry-title: "Title"
+      callout-field-entry-text: "Text"
+      callout-add-entry: "Add category"
+      callout-entry-label: "Entry {n}"
+      callout-config-output-title: "config.yml entry"
+      callout-config-output-hint: "Paste this under the callouts: key in your config.yml."
 
   de:
     about:
@@ -92,9 +163,10 @@ localisation:
       button: "Schließen"
       content: |
         ### MD-CMS Editor
-        Erstellt **Tab**- und **Akkordeon**-Blöcke für MD-CMS — Elemente links
-        ausfüllen, rechts prüfen und den erzeugten ` ```mdcms `-Codeblock direkt
-        in den Markdown-Quelltext der Seite einfügen.
+        Erstellt einen Seiteninhalt sowie **Tab**-, **Akkordeon**- und
+        **Callout**-Blöcke für MD-CMS — Felder ausfüllen, prüfen und den
+        erzeugten Code direkt in den Markdown-Quelltext der Seite einfügen
+        (bei wiederverwendbaren Callouts: in die config.yml).
 
         Der Entwurf wird im lokalen Speicher des Browsers abgelegt und bleibt
         so auch nach einem Neuladen erhalten — es wird nichts hochgeladen.
@@ -102,10 +174,12 @@ localisation:
         **MD-CMS:** [kbenestad/mdcms](https://github.com/kbenestad/mdcms)
         **Design-System:** [kbenestad/bizdocs](https://github.com/kbenestad/bizdocs)
     ui:
-      subtitle: "Tab- und Akkordeon-Blockgenerator für MD-CMS"
+      subtitle: "Seiten-, Tab-, Akkordeon- und Callout-Editor für MD-CMS"
 
+      blocktype-page: "Seite"
       blocktype-tab: "Tabs"
       blocktype-accordion: "Akkordeon"
+      blocktype-callout: "Callout"
 
       variant-label: "Stil"
       variant-underline: "Unterstrichen"
@@ -131,16 +205,84 @@ localisation:
       collapse-all: "Alle einklappen"
       expand-all: "Alle ausklappen"
       empty-items: "Noch keine Elemente — fügen Sie eins hinzu, um zu beginnen."
+      empty-page: "Schreiben Sie etwas Inhalt, um ihn hier als Vorschau zu sehen."
       image-url-prompt: "Bild-URL oder relativer Pfad (z. B. images/photo.png):"
 
       preview-title: "Vorschau"
-      preview-note: "Vereinfachte Vorschau: zeigt die Tab-/Akkordeon-Interaktion, aber Farben, Abstände und einiges an fortgeschrittenem Markdown (Tabellen, Codeblöcke) stammen aus dem mdcms-Theme Ihrer Seite, nicht aus diesem Editor."
+      preview-note-items: "Vereinfachte Vorschau: zeigt die Tab-/Akkordeon-Interaktion, aber Farben, Abstände und einiges an fortgeschrittenem Markdown (Tabellen, Codeblöcke) stammen aus dem mdcms-Theme Ihrer Seite, nicht aus diesem Editor."
+      preview-note-page: "Vereinfachte Vorschau: mit einem minimalen Markdown-Renderer erzeugt, nicht mit dem mdcms-Theme Ihrer Seite — fortgeschrittenes Markdown (Tabellen, Codeblöcke) sieht hier möglicherweise anders aus."
+      preview-note-callout: "Vereinfachte Vorschau: Farben stammen aus den gemeinsamen kb-note-Stilen, nicht aus dem mdcms-Theme Ihrer Seite. Wiederverwendbare Callouts zeigen nur den ersten Kategorie-Eintrag."
 
       output-title: "Generierter Code"
       output-hint: "Diesen Block direkt in Ihre MD-CMS-Seite einfügen."
-      output-empty: "Fügen Sie mindestens ein Element mit Titel und Inhalt hinzu, um Code zu erzeugen."
+      output-hint-page: "Dies ist der Markdown-Inhalt Ihrer Seite."
+      output-empty: "Füllen Sie die obigen Felder aus, um Code zu erzeugen."
+      output-empty-page: "Schreiben Sie oben etwas Inhalt, um eine Ausgabe zu erzeugen."
+      output-page-snippet: "Seiten-Snippet"
       warn-incomplete: "Geben Sie jedem Element einen Titel und einen Inhalt, bevor Sie kopieren."
 
       download-snippet: "Als .md herunterladen"
       copy: "In die Zwischenablage kopieren"
       copied: "Kopiert!"
+
+      import-md: "Aus .md importieren"
+      load-clipboard: "Aus Zwischenablage laden"
+      validate: "Prüfen"
+      action-close: "Schließen"
+      import-title: "Import"
+      import-error-title: "Import fehlgeschlagen"
+      import-empty-text: "Diese Datei oder der Inhalt der Zwischenablage ist leer."
+      clipboard-read-error: "Zwischenablage konnte nicht gelesen werden. Ihr Browser benötigt möglicherweise eine Berechtigung, oder der Inhalt ist kein reiner Text."
+      import-no-tab-block: "In dem importierten Text wurde kein Tab-Block (```mdcms tab-...```) gefunden."
+      import-no-accordion-block: "In dem importierten Text wurde kein Akkordeon-Block (```mdcms accordion-...```) gefunden."
+      import-yaml-error: "Das YAML des Blocks konnte nicht gelesen werden: {error}"
+      import-empty-items: "Der importierte Block enthält keine Elemente."
+      import-callout-message-only: "Nachrichtenschlüssel und Typ wurden importiert. Titel und Text je Kategorie stammen aus Ihrer config.yml, nicht von der Seite — bitte unten ergänzen."
+      import-callout-unrecognized: "Dies konnte nicht als Callout-Block oder als wiederverwendbarer YAML-Eintrag erkannt werden."
+
+      validate-title: "Prüfung"
+      validate-all-good: "Sieht gut aus — keine Probleme gefunden."
+      validate-no-items: "Fügen Sie mindestens ein Element hinzu."
+      validate-missing-title: "Element {n} hat keinen Titel."
+      validate-missing-content: "Element {n} hat keinen Inhalt."
+      validate-duplicate-titles: "Zwei oder mehr Elemente haben denselben Titel."
+      validate-yaml-error: "Das erzeugte YAML ließ sich nicht zurücklesen: {error}"
+      validate-page-empty: "Die Seite hat keinen Inhalt."
+      validate-unbalanced-fences: "Unausgeglichene ```-Codezäune — bitte Codeblöcke prüfen."
+      validate-callout-empty: "Fügen Sie einen Titel oder Text für dieses Callout hinzu."
+      validate-callout-key-required: "Ein Nachrichtenschlüssel ist erforderlich."
+      validate-callout-key-format: "Der Schlüssel sollte mit einem Buchstaben beginnen und nur Buchstaben, Zahlen, - oder _ enthalten (so muss er in config.yml nicht in Anführungszeichen stehen)."
+      validate-callout-no-entries: "Fügen Sie mindestens einen Kategorie-Eintrag hinzu."
+      validate-callout-entry-code: "Eintrag {n} hat keinen Kategoriecode."
+      validate-callout-entry-empty: "Eintrag {n} hat weder Titel noch Text."
+      validate-callout-duplicate-codes: "Zwei oder mehr Einträge haben denselben Kategoriecode."
+
+      page-content-title: "Seiteninhalt"
+      ph-page-content: "Schreiben Sie hier den Markdown-Inhalt der Seite…"
+
+      callout-title: "Callout"
+      callout-mode-label: "Modus"
+      callout-mode-inline: "Inline"
+      callout-mode-reusable: "Wiederverwendbar (config.yml)"
+      callout-type-label: "Typ"
+      callout-type-info: "Info"
+      callout-type-warning: "Warnung"
+      callout-type-success: "Erfolg"
+      callout-type-error: "Fehler"
+      callout-field-title: "Titel (optional)"
+      ph-callout-title: "z. B. Hinweis"
+      callout-field-icon: "Icon (optional)"
+      ph-callout-icon: "z. B. lightbulb — ein SVG-Name aus assets/icons/ Ihrer Seite"
+      callout-field-content: "Inhalt"
+      callout-field-key: "Nachrichtenschlüssel"
+      ph-callout-key: "z. B. aitranslation"
+      callout-entries-title: "Kategorie-Einträge"
+      callout-empty-entries: "Noch keine Kategorie-Einträge — fügen Sie einen hinzu, um zu beginnen."
+      callout-field-code: "Kategoriecode"
+      ph-callout-code: "z. B. en"
+      callout-field-entry-title: "Titel"
+      callout-field-entry-text: "Text"
+      callout-add-entry: "Kategorie hinzufügen"
+      callout-entry-label: "Eintrag {n}"
+      callout-config-output-title: "config.yml-Eintrag"
+      callout-config-output-hint: "Diesen Abschnitt unter dem Schlüssel callouts: in Ihre config.yml einfügen."
