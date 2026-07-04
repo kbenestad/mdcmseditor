@@ -1,29 +1,16 @@
 # =============================================================================
-# basis — Configuration
+# MD-CMS Editor — Configuration
 # =============================================================================
-# basis is the STANDALONE starter: it shares the bizdocs design system but is
-# self-contained (it bundles its own assets/) and is NOT part of the app series.
-# Copy this folder to start a standalone app, then rename and replace the marked
-# "app-specific" parts. The keys below are the standard bizdocs config header;
-# keep them and add your own (currencies, accounts, products, codes, …).
+# MD-CMS Editor builds tab and accordion code blocks for MD-CMS
+# (https://github.com/kbenestad/mdcms) that can be pasted directly into a
+# page's Markdown source. It shares the bizdocs/basis chrome, but — unlike a
+# PDF-producing app — its "output" is a text snippet, so there is no page-size,
+# font, or logo configuration here; see CLAUDE.md for why those keys were
+# dropped from this app's config.
 
 # Organization
 organization:                # leave blank to show the kBenestad wordmark
-logo: no                     # yes|no — if yes, loads assets/logo.png or logo.jpg
-logo-maxwidth: 4             # cm — maximum logo width on the PDF
-tagline:                     # subtitle shown below the org name (falls back to ui.subtitle)
-
-# Page setup
-page-size: A4                # A4 or letter
-
-# PDF output language: "default" (first defined language) or "user-selected" (follow the UI)
-output-language: default
-
-# Typography (PDF). Standard fonts: Helvetica, Times, Courier (+ Bold/Italic).
-font-body: Helvetica
-font-heading: Helvetica
-font-monospace: Courier
-font-size: 10
+tagline:                      # subtitle shown below the org name (falls back to ui.subtitle)
 
 # Branding — overrides the --accent token for this app
 accent-colour: "#2f6fed"
@@ -45,43 +32,115 @@ localisation:
       title: "About"
       button: "Close"
       content: |
-        ### basis
-        A standalone starter that shares the **bizdocs** look and runtime, but
-        is self-contained (it bundles its own assets/) and lives outside the app
-        series. Toolbar, theme, text-size control, language switch, About modal
-        and footer are already wired up.
+        ### MD-CMS Editor
+        Builds **tab** and **accordion** blocks for MD-CMS — fill in items on
+        the left, preview them on the right, then copy the generated
+        ` ```mdcms ` code block straight into your page's Markdown source.
 
-        Replace the example card with your own form and PDF output.
+        Your draft is kept in this browser's local storage, so it survives a
+        reload — nothing is uploaded anywhere.
 
-        **Source:** [kbenestad/bizdocs](https://github.com/kbenestad/bizdocs)
+        **MD-CMS:** [kbenestad/mdcms](https://github.com/kbenestad/mdcms)
+        **Design system:** [kbenestad/bizdocs](https://github.com/kbenestad/bizdocs)
     ui:
-      subtitle: "Standalone starter"
-      example-section: "Example section"
-      field-name: "Name"
-      ph-name: "Full name"
-      field-date: "Date"
-      save: "Save"
-      download: "Download PDF"
+      subtitle: "Tab & accordion block generator for MD-CMS"
+
+      blocktype-tab: "Tabs"
+      blocktype-accordion: "Accordion"
+
+      variant-label: "Style"
+      variant-underline: "Underline"
+      variant-filled: "Filled"
+
+      items-title: "Items"
+      item-label: "Item {n}"
+      field-title: "Title"
+      ph-title-tab: "e.g. Install"
+      ph-title-accordion: "e.g. What is MD-CMS?"
+      field-content: "Content (Markdown)"
+      ph-content: "Full Markdown — headings, lists, code fences, links…"
+      field-title-style: "Title style"
+      title-style-none: "None (default)"
+      title-style-h: "Heading {n}"
+      field-default-tab: "Active on load"
+      field-default-accordion: "Open on load"
+      add-item: "Add item"
+      remove-item: "Remove item"
+      move-up: "Move up"
+      move-down: "Move down"
+      toggle-item: "Show or hide this item's fields"
+      collapse-all: "Collapse all"
+      expand-all: "Expand all"
+      empty-items: "No items yet — add one to get started."
+      image-url-prompt: "Image URL or relative path (e.g. images/photo.png):"
+
+      preview-title: "Preview"
+      preview-note: "Simplified preview: shows the tab/accordion interaction, but colours, spacing, and some advanced Markdown (tables, code blocks) come from your site's own mdcms theme, not this editor."
+
+      output-title: "Generated code"
+      output-hint: "Paste this block directly into your MD-CMS page."
+      output-empty: "Add at least one item with a title and content to generate code."
+      warn-incomplete: "Give every item a title and content before copying."
+
+      download-snippet: "Download .md"
+      copy: "Copy to clipboard"
+      copied: "Copied!"
 
   de:
     about:
       title: "Über"
       button: "Schließen"
       content: |
-        ### basis
-        Ein eigenständiges Grundgerüst, das Aussehen und Laufzeit von
-        **bizdocs** teilt, aber in sich geschlossen ist (eigene assets/) und
-        außerhalb der App-Serie liegt. Symbolleiste, Theme, Textgröße,
-        Sprachwahl, Über-Dialog und Fußzeile sind bereits eingebunden.
+        ### MD-CMS Editor
+        Erstellt **Tab**- und **Akkordeon**-Blöcke für MD-CMS — Elemente links
+        ausfüllen, rechts prüfen und den erzeugten ` ```mdcms `-Codeblock direkt
+        in den Markdown-Quelltext der Seite einfügen.
 
-        Ersetzen Sie die Beispielkarte durch Ihr eigenes Formular und PDF.
+        Der Entwurf wird im lokalen Speicher des Browsers abgelegt und bleibt
+        so auch nach einem Neuladen erhalten — es wird nichts hochgeladen.
 
-        **Quellcode:** [kbenestad/bizdocs](https://github.com/kbenestad/bizdocs)
+        **MD-CMS:** [kbenestad/mdcms](https://github.com/kbenestad/mdcms)
+        **Design-System:** [kbenestad/bizdocs](https://github.com/kbenestad/bizdocs)
     ui:
-      subtitle: "Eigenständige Vorlage"
-      example-section: "Beispielabschnitt"
-      field-name: "Name"
-      ph-name: "Vollständiger Name"
-      field-date: "Datum"
-      save: "Speichern"
-      download: "PDF herunterladen"
+      subtitle: "Tab- und Akkordeon-Blockgenerator für MD-CMS"
+
+      blocktype-tab: "Tabs"
+      blocktype-accordion: "Akkordeon"
+
+      variant-label: "Stil"
+      variant-underline: "Unterstrichen"
+      variant-filled: "Gefüllt"
+
+      items-title: "Elemente"
+      item-label: "Element {n}"
+      field-title: "Titel"
+      ph-title-tab: "z. B. Installation"
+      ph-title-accordion: "z. B. Was ist MD-CMS?"
+      field-content: "Inhalt (Markdown)"
+      ph-content: "Vollständiges Markdown — Überschriften, Listen, Codeblöcke, Links…"
+      field-title-style: "Titelstil"
+      title-style-none: "Keiner (Standard)"
+      title-style-h: "Überschrift {n}"
+      field-default-tab: "Beim Laden aktiv"
+      field-default-accordion: "Beim Laden geöffnet"
+      add-item: "Element hinzufügen"
+      remove-item: "Element entfernen"
+      move-up: "Nach oben"
+      move-down: "Nach unten"
+      toggle-item: "Felder dieses Elements ein-/ausblenden"
+      collapse-all: "Alle einklappen"
+      expand-all: "Alle ausklappen"
+      empty-items: "Noch keine Elemente — fügen Sie eins hinzu, um zu beginnen."
+      image-url-prompt: "Bild-URL oder relativer Pfad (z. B. images/photo.png):"
+
+      preview-title: "Vorschau"
+      preview-note: "Vereinfachte Vorschau: zeigt die Tab-/Akkordeon-Interaktion, aber Farben, Abstände und einiges an fortgeschrittenem Markdown (Tabellen, Codeblöcke) stammen aus dem mdcms-Theme Ihrer Seite, nicht aus diesem Editor."
+
+      output-title: "Generierter Code"
+      output-hint: "Diesen Block direkt in Ihre MD-CMS-Seite einfügen."
+      output-empty: "Fügen Sie mindestens ein Element mit Titel und Inhalt hinzu, um Code zu erzeugen."
+      warn-incomplete: "Geben Sie jedem Element einen Titel und einen Inhalt, bevor Sie kopieren."
+
+      download-snippet: "Als .md herunterladen"
+      copy: "In die Zwischenablage kopieren"
+      copied: "Kopiert!"
