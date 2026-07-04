@@ -1,23 +1,23 @@
 <!DOCTYPE html>
 <!--
   ════════════════════════════════════════════════════════════════════════════
-  basis — STANDALONE STARTER (shares the bizdocs look, NOT part of the series).
+  MD-CMS Editor — a standalone kbenestad app (shares the bizdocs/basis look).
 
-  Unlike _template/ (which links the monorepo's ../assets/), this app is
-  self-contained: it bundles its own copy of the shared design + runtime in
-  ./assets/. Those three files (style.css, ui.css, app.js) are kept
-  BYTE-IDENTICAL to bizdocs' shared assets so a bizdocs UI change can be dropped
-  straight in — see ./README.md and ./sync.sh.
+  Builds `tab` and `accordion` code blocks for MD-CMS (github.com/kbenestad/mdcms)
+  that can be pasted directly into a page's Markdown source. Built from the
+  `basis` template — see ./README.md and ./CLAUDE.md for the template itself,
+  ./DESIGN.md for the shared design system this app must stay pixel-identical to.
 
-  To build a real app from this folder:
-    1. Set <title>, the doc-title <h1>, and the 'basis-lang' localStorage key.
-    2. Replace buildExampleCard() with your form (use kb-* components) and
-       onDownload() with your real PDF (use pdf-lib).
-    3. Fill in config.yml: keep the header keys; add ui: strings to EVERY
-       language block; route all copy through S().
-    4. Drop a real favicon / PWA icon set into ./assets/.
-  Don't hand-rewrite the chrome (head, toolbar, header, footer) — keeping it as
-  shipped is what keeps the app pixel-identical to bizdocs.
+  Deliberate deviation from the `basis` default: this app's "output" is a text
+  snippet, not a PDF, so pdf-lib is NOT loaded here (see the CDN block below)
+  and the action row lives inside each block-type panel instead of once
+  globally — every other chrome convention (head order, kb-* components,
+  toolbar/header/footer assembly) is unchanged.
+
+  Architecture note for future work (see docs/roadmap.md — a full-page MD-CMS
+  editor is the long-term goal): block types are data, not special-cased code.
+  Adding a third block (callout, toc, …) means adding one BLOCK_TYPES entry and
+  a matching per-kind panel builder — see the "Block-type registry" section.
   ════════════════════════════════════════════════════════════════════════════
 -->
 <html lang="en">
@@ -25,9 +25,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="format-detection" content="telephone=no">
-<title>Basis</title>
+<title>MD-CMS Editor</title>
 
-<!-- Favicons / PWA. Drop a full icon set into assets/ for a real app. -->
+<!-- Favicons / PWA. Placeholder icon — see docs/roadmap.md for a real set. -->
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
 <link rel="manifest" href="assets/site.webmanifest">
 <meta name="theme-color" content="#2f6fed">
@@ -37,8 +37,9 @@
   (function(){var t=localStorage.getItem('kb-theme');if(t)document.documentElement.setAttribute('data-theme',t);})();
 </script>
 
-<!-- CDN libraries: js-yaml (all apps) + pdf-lib (PDF output; new apps use pdf-lib). -->
-<script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+<!-- CDN libraries: js-yaml only. This app generates a Markdown/YAML text
+     snippet, never a PDF, so pdf-lib (the family's usual second CDN lib) is
+     deliberately not loaded — see the file-header note above. -->
 <script src="https://unpkg.com/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
 
 <!-- Shared design + runtime — LOCAL copies (self-contained / standalone).
@@ -47,16 +48,61 @@
 <link rel="stylesheet" href="assets/ui.css">
 <script src="assets/app.js"></script>
 
-<!-- App-specific styles ONLY (the shared look lives in assets/*.css).
-     Put column grids / bespoke layout here; empty is fine to start. -->
+<!-- App-specific styles ONLY (the shared look lives in assets/*.css). Prefixed
+     "mce-" (MD-CMS Editor) so it can never collide with mdcms's own "mdcms-"
+     render classes or the shared "kb-" component classes. -->
 <style>
-/* e.g. .basis-row { display:grid; grid-template-columns: 1fr 1fr auto; gap:8px; } */
+.mce-panel { padding-top: 18px; }
+
+/* Items card: variant switch row + repeatable item rows + add-item control. */
+.mce-variant-row { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+.mce-variant-row .kb-seg { margin-left: auto; }
+
+.mce-item {
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface-2); padding: 14px 16px; margin-bottom: 12px;
+}
+.mce-item__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.mce-item__index { font-size: var(--fs-label); font-weight: 600; letter-spacing: .03em; text-transform: uppercase; color: var(--text-muted); }
+.mce-item__move { display: flex; align-items: center; gap: 6px; }
+.mce-item__row { display: grid; grid-template-columns: 1fr 180px; gap: 12px 16px; margin-bottom: 12px; }
+.mce-content { font-family: var(--font-mono); font-size: var(--fs-small); min-height: 108px; }
+
+.mce-toggle { display: flex; align-items: center; gap: 8px; font-size: var(--fs-small); color: var(--text-soft); cursor: pointer; }
+.mce-toggle input { accent-color: var(--accent); width: 16px; height: 16px; cursor: pointer; }
+
+.mce-add-btn {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  background: none; border: 0; cursor: pointer; color: var(--accent);
+  font: 600 var(--fs-input)/1 var(--font-sans); padding: 8px 2px;
+}
+.mce-add-btn:hover { color: var(--accent-hover); }
+
+.mce-hint { font-size: var(--fs-small); color: var(--text-muted); margin-top: 10px; line-height: 1.6; }
+
+/* Preview: dashed frame signals "not the real theme" without extra copy. */
+.mce-preview-body { border: 1px dashed var(--border-strong); border-radius: var(--radius-sm); padding: 16px 18px; }
+.mce-preview-body :is(h1, h2, h3) { margin: 10px 0 4px; }
+.mce-preview-body p { margin-bottom: 8px; }
+.mce-preview-body ul { margin-left: 18px; margin-bottom: 8px; }
+
+/* Generated code block */
+.mce-code {
+  background: var(--surface-3); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 14px 16px; font-family: var(--font-mono); font-size: var(--fs-small);
+  line-height: 1.6; white-space: pre-wrap; word-break: break-word;
+  max-height: 420px; overflow-y: auto; margin: 0;
+}
+
+@media (max-width: 600px) {
+  .mce-item__row { grid-template-columns: 1fr; }
+}
 
 /* Version footer block (see CLAUDE.md → Footer). kb-footer itself has no
    spacer/right-hand slot in the shared ui.css, so both live here. */
 .kb-footer .spacer { flex: 1; }
-.basis-version { text-align: right; line-height: 1.4; }
-.basis-version > * { display: block; }
+.mce-version { text-align: right; line-height: 1.4; }
+.mce-version > * { display: block; }
 </style>
 </head>
 <body>
@@ -67,7 +113,8 @@
 'use strict';
 /* This script is wrapped in an IIFE, so its top-level functions are NOT
  * globals — they cannot collide with app.js. Helpers from app.js ($, el,
- * makeSizeControl, kbAbout, lookupString, …) are visible in here. */
+ * makeSizeControl, kbAbout, lookupString, makeTabs, uid, markdown, …) are
+ * visible in here. */
 
 let CFG;          // parsed config.yml
 let lang = 'en';  // active UI language
@@ -79,25 +126,17 @@ let lang = 'en';  // active UI language
 const APP_VERSION = {
   version: '0.1.0',
   commit: '4680cf5',
-  prUrl: 'https://github.com/kbenestad/appdevelopment/pull/1',
+  prUrl: 'https://github.com/kbenestad/mdcmseditor/pull/1',
   date: '4 July 2026',
 };
 
 // ── i18n ───────────────────────────────────────────────────────────────────
-// One string lookup, delegating to the shared lookupString(). Never hardcode
-// user-facing text — add a key to every language's `ui:` block and use S().
 function S(key, vars) {
   return lookupString(CFG['ui-strings'], key, lang, CFG['default-code'], vars);
 }
 
-// Guard against a successful fetch that returns the WRONG bytes. On a static
-// host a missing config.yml (or an SPA fallback / stale HTML cache) is served
-// as an HTML page with a 200, so jsyaml.load() returns a plain string instead
-// of the config object. Without this check CFG.localisation is undefined,
-// normaliseConfig() early-returns, and the app renders its chrome with every
-// label showing as a raw key and an empty language dropdown — no error at all.
-// Fail loudly and actionably instead. (Kept in the inline boot, NOT app.js,
-// which must stay byte-identical across apps.)
+// Guard against a successful fetch that returns the WRONG bytes — see
+// CLAUDE.md → "Config validation (keep this guard)" for why this exists.
 function assertValidConfig(cfg) {
   if (!cfg || typeof cfg !== 'object' || !cfg.localisation) {
     throw new Error(
@@ -109,8 +148,6 @@ function assertValidConfig(cfg) {
   }
 }
 
-// Flatten localisation[lang].ui → ui-strings[key][lang] using the shared core.
-// Add your own data-specific maps (currencies, codes, …) after this.
 function normaliseConfig() {
   const loc = CFG && CFG.localisation;
   if (!loc) return;
@@ -120,7 +157,6 @@ function normaliseConfig() {
   CFG['ui-strings'] = table;
 }
 
-// Copy the active language's About block onto flat fields the modal reads.
 function applyLang(lc) {
   lang = lc;
   const loc = CFG.localisation || {};
@@ -134,28 +170,155 @@ function showAboutModal() {
   return kbAbout({ title: CFG['about-title'], contentMD: CFG['about-content'], closeLabel: CFG['about-button'] });
 }
 
+// ── Block-type registry ─────────────────────────────────────────────────────
+// The single place that knows what an MD-CMS block "kind" is. Adding a new
+// kind (e.g. callout, toc — see docs/roadmap.md) means adding an entry here
+// plus a per-kind panel builder; nothing else in the boot/render/persist
+// pipeline is kind-specific.
+//
+//   variants     — the tag-name suffixes MD-CMS accepts for this kind. The
+//                  editor always emits the explicit variant name, never the
+//                  bare alias (`tab`/`accordion`), so pasted output is
+//                  unambiguous.
+//   exclusive    — true if only one item may carry the "default" flag at a
+//                  time (tabs: exactly one active tab). false if any number
+//                  of items may (accordion: any number open).
+//   defaultValue — the YAML value written for the item(s) carrying the flag.
+const BLOCK_TYPES = {
+  tab: {
+    variants: [
+      { id: 'underline', tagName: 'tab-underline' },
+      { id: 'filled',    tagName: 'tab-filled' },
+    ],
+    exclusive: true,
+    defaultValue: 'selected',
+    titlePlaceholderKey: 'ph-title-tab',
+    defaultFieldKey: 'field-default-tab',
+  },
+  accordion: {
+    variants: [
+      { id: 'underline', tagName: 'accordion-underline' },
+      { id: 'filled',    tagName: 'accordion-filled' },
+    ],
+    exclusive: false,
+    defaultValue: 'open',
+    titlePlaceholderKey: 'ph-title-accordion',
+    defaultFieldKey: 'field-default-accordion',
+  },
+};
+const TITLE_STYLE_LEVELS = ['', '#', '##', '###', '####', '#####', '######'];
+
+function currentVariantDef(kind) {
+  const cfg = BLOCK_TYPES[kind];
+  return cfg.variants.find(v => v.id === state.variant[kind]) || cfg.variants[0];
+}
+
+function makeBlankItem() {
+  return { id: uid(), title: '', content: '', isDefault: false, titleStyle: '' };
+}
+
+function seedItems(kind) {
+  return kind === 'tab'
+    ? [
+        { id: uid(), title: 'Install', content: 'Install with `npm i mdcms` or `pnpm add mdcms`.', isDefault: true, titleStyle: '' },
+        { id: uid(), title: 'Configure', content: 'Drop a `mdcms.config.yaml` next to your content folder.', isDefault: false, titleStyle: '' },
+      ]
+    : [
+        { id: uid(), title: 'What is MD-CMS?', content: 'A single-file browser renderer: no build pipeline, no compilation, no server required.', isDefault: true, titleStyle: '' },
+        { id: uid(), title: 'How do I install it?', content: 'Run `pip install mdcms`, or download a binary from the GitHub releases page.', isDefault: false, titleStyle: '' },
+      ];
+}
+
+// ── State + persistence ──────────────────────────────────────────────────────
+// Full-rebuild-on-change like the rest of the family, with one exception:
+// typing in a title/content field does NOT trigger a full render() (that would
+// steal focus mid-keystroke). It mutates state directly and calls
+// refreshDerived(), which only rebuilds the Preview/Output card bodies.
+let state = { variant: {}, items: {} };
+
+const DRAFT_KEY = 'mdcmseditor-draft';
+
+function persistDraft() {
+  try {
+    localStorage.setItem(DRAFT_KEY, JSON.stringify({ variant: state.variant, items: state.items }));
+  } catch (e) { /* storage unavailable/full — draft simply won't persist */ }
+}
+
+function loadDraft() {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(DRAFT_KEY)); } catch (e) { saved = null; }
+
+  const variant = { tab: 'underline', accordion: 'underline' };
+  const items = { tab: seedItems('tab'), accordion: seedItems('accordion') };
+
+  Object.keys(BLOCK_TYPES).forEach(kind => {
+    if (saved && saved.variant && BLOCK_TYPES[kind].variants.some(v => v.id === saved.variant[kind])) {
+      variant[kind] = saved.variant[kind];
+    }
+    if (saved && Array.isArray(saved.items && saved.items[kind]) && saved.items[kind].length) {
+      items[kind] = saved.items[kind].map(it => ({
+        id: (it && it.id) || uid(),
+        title: (it && typeof it.title === 'string') ? it.title : '',
+        content: (it && typeof it.content === 'string') ? it.content : '',
+        isDefault: !!(it && it.isDefault),
+        titleStyle: (it && TITLE_STYLE_LEVELS.includes(it.titleStyle)) ? it.titleStyle : '',
+      }));
+    }
+  });
+
+  return { variant, items };
+}
+
+// ── YAML / snippet generation ────────────────────────────────────────────────
+// A trailing newline (and only one) on each item's content matches how MD-CMS's
+// own docs write these blocks and keeps js-yaml on the clean `content: |` block
+// style rather than the `|-` (strip) variant.
+function withSingleTrailingNewline(s) {
+  return s ? s.replace(/\n+$/, '') + '\n' : '';
+}
+
+function buildYamlItems(kind) {
+  const cfg = BLOCK_TYPES[kind];
+  return state.items[kind].map(item => {
+    const obj = { title: item.title || '' };
+    if (item.isDefault) obj.default = cfg.defaultValue;
+    obj.content = withSingleTrailingNewline(item.content);
+    if (item.titleStyle) obj['title-style'] = item.titleStyle;
+    return obj;
+  });
+}
+
+// Builds the exact ```mdcms <tag>\n<yaml>``` block ready to paste into a page.
+function buildSnippet(kind) {
+  const tagName = currentVariantDef(kind).tagName;
+  const yamlBody = jsyaml.dump({ items: buildYamlItems(kind) }, { lineWidth: -1 });
+  return '```mdcms ' + tagName + '\n' + yamlBody + '```\n';
+}
+
 // ── Render ─────────────────────────────────────────────────────────────────
 function render() {
+  persistDraft();
   const app = document.getElementById('app');
   app.innerHTML = '';
   const wrap = el('div', { className: 'kb-wrap' });
 
   wrap.appendChild(buildToolbar());
   wrap.appendChild(buildHeader());
-  wrap.appendChild(buildExampleCard());   // ← replace this with your form
-
-  // Action row
-  const actions = el('div', { className: 'kb-actions' });
-  actions.append(
-    el('button', { className: 'kb-btn kb-btn--ghost' }, S('save')),
-    el('button', { className: 'kb-btn kb-btn--primary', onClick: onDownload }, S('download'))
-  );
-  wrap.appendChild(actions);
-
+  wrap.appendChild(buildSwitcher());
   wrap.appendChild(buildFooter());
 
   app.appendChild(wrap);
-  updateThemeIcon();   // keep theme icons in sync after a (re)render
+  updateThemeIcon();
+}
+
+// Rebuild only the Preview + Output card bodies for one kind, in place. Used
+// by every keystroke handler so the field being typed into is never touched.
+function refreshDerived(kind) {
+  const previewBody = document.getElementById('mce-preview-' + kind);
+  if (previewBody) { previewBody.innerHTML = ''; previewBody.appendChild(buildPreviewBody(kind)); }
+  const outputBody = document.getElementById('mce-output-' + kind);
+  if (outputBody) { outputBody.innerHTML = ''; outputBody.appendChild(buildOutputBody(kind)); }
+  persistDraft();
 }
 
 // Toolbar: language select · spacer · A−/A+ size · theme · about
@@ -170,7 +333,7 @@ function buildToolbar() {
   });
   langSel.addEventListener('change', () => {
     applyLang(langSel.value);
-    localStorage.setItem('basis-lang', langSel.value);   // app-specific key
+    localStorage.setItem('mdcmseditor-lang', langSel.value);
     render();
   });
 
@@ -186,41 +349,285 @@ function buildToolbar() {
 }
 
 // Header: brand wordmark (kBenestad mark + org/tagline) + right-aligned title.
+const MCE_TITLE_ICON = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="8 6 3 12 8 18"/><polyline points="16 6 21 12 16 18"/></svg>';
+
 function buildHeader() {
   const header = el('header', { className: 'kb-header' });
 
   const brand = el('div', { className: 'kb-brand' });
   const tile = el('span', { className: 'logo' }); tile.innerHTML = KB_BRAND_SVG;
   const org = el('span', { className: 'org' });
-  org.appendChild(document.createTextNode(CFG.organization || 'kbenestad/basis'));
+  org.appendChild(document.createTextNode(CFG.organization || 'kbenestad/mdcmseditor'));
   const small = el('small'); small.textContent = CFG.tagline || S('subtitle');
   org.appendChild(small);
   brand.append(tile, org);
 
   const title = el('div', { className: 'kb-doctitle' });
-  title.appendChild(el('h1', null, 'basis'));   // ← your app name (add an icon SVG if you like)
+  const h1 = el('h1');
+  h1.innerHTML = MCE_TITLE_ICON;
+  h1.appendChild(document.createTextNode('MD-CMS Editor'));
+  title.appendChild(h1);
 
   header.append(brand, title);
   return header;
 }
 
-// Example content — DELETE and build your own cards/grids from kb-* components.
-function buildExampleCard() {
+// Top-level switch between the two block kinds. Both panels are always fully
+// built (see the file-header architecture note); makeTabs() just shows one.
+function buildSwitcher() {
+  return makeTabs([
+    { label: S('blocktype-tab'), content: buildKindPanel('tab') },
+    { label: S('blocktype-accordion'), content: buildKindPanel('accordion') },
+  ]);
+}
+
+function buildKindPanel(kind) {
+  const wrap = el('div', { className: 'mce-panel' });
+  wrap.appendChild(buildItemsCard(kind));
+  wrap.appendChild(buildPreviewCard(kind));
+  wrap.appendChild(buildOutputCard(kind));
+  return wrap;
+}
+
+function field(label, input, extraClass) {
+  const f = el('div', { className: 'kb-field' + (extraClass ? ' ' + extraClass : '') });
+  f.append(el('span', { className: 'kb-label' }, label), input);
+  return f;
+}
+
+function noteBox(variant, text) {
+  const box = el('div', { className: 'kb-note kb-note--' + variant });
+  const icon = el('span'); icon.innerHTML = variant === 'warning' ? KB_ICON.warn : KB_ICON.info;
+  box.append(icon, el('div', null, text));
+  return box;
+}
+
+// "Style" row (Underline/Filled) + the repeatable item list + add-item control.
+function buildItemsCard(kind) {
+  const cfg = BLOCK_TYPES[kind];
+  const items = state.items[kind];
   const card = el('div', { className: 'kb-card' });
-  card.appendChild(el('div', { className: 'kb-card__title' }, S('example-section')));
-  const grid = el('div', { className: 'kb-grid cols-2' });
-  grid.append(
-    field(S('field-name'), el('input', { className: 'kb-input', placeholder: S('ph-name') })),
-    field(S('field-date'), el('input', { className: 'kb-input', type: 'date' }))
-  );
-  card.appendChild(grid);
+
+  const title = el('div', { className: 'kb-card__title' }, S('items-title'));
+  title.appendChild(el('span', { className: 'count' }, String(items.length)));
+  card.appendChild(title);
+
+  const variantRow = el('div', { className: 'mce-variant-row' });
+  variantRow.appendChild(el('span', { className: 'kb-label' }, S('variant-label')));
+  const seg = el('div', { className: 'kb-seg', role: 'group', 'aria-label': S('variant-label') });
+  cfg.variants.forEach(v => {
+    const btn = el('button', { type: 'button' }, S('variant-' + v.id));
+    if (state.variant[kind] === v.id) btn.classList.add('is-active');
+    btn.addEventListener('click', () => { state.variant[kind] = v.id; render(); });
+    seg.appendChild(btn);
+  });
+  variantRow.appendChild(seg);
+  card.appendChild(variantRow);
+
+  if (!items.length) {
+    card.appendChild(noteBox('info', S('empty-items')));
+  } else {
+    items.forEach((item, i) => card.appendChild(buildItemRow(kind, cfg, item, i, items.length)));
+  }
+
+  const addBtn = el('button', { type: 'button', className: 'mce-add-btn', onClick: () => {
+    state.items[kind].push(makeBlankItem());
+    render();
+  } });
+  const plus = el('span', { className: 'kb-circbtn', 'aria-hidden': 'true' }, '+');
+  addBtn.append(plus, el('span', null, S('add-item')));
+  card.appendChild(addBtn);
+
   return card;
 }
 
-function field(label, input) {
-  const f = el('div', { className: 'kb-field' });
-  f.append(el('span', { className: 'kb-label' }, label), input);
-  return f;
+function buildItemRow(kind, cfg, item, index, total) {
+  const row = el('div', { className: 'mce-item' });
+
+  const head = el('div', { className: 'mce-item__head' });
+  head.appendChild(el('span', { className: 'mce-item__index' }, S('item-label', { n: index + 1 })));
+
+  const move = el('div', { className: 'mce-item__move' });
+  const upBtn = el('button', { type: 'button', className: 'kb-iconbtn', 'aria-label': S('move-up'), disabled: index === 0,
+    onClick: () => { const arr = state.items[kind]; [arr[index - 1], arr[index]] = [arr[index], arr[index - 1]]; render(); } }, '↑');
+  const downBtn = el('button', { type: 'button', className: 'kb-iconbtn', 'aria-label': S('move-down'), disabled: index === total - 1,
+    onClick: () => { const arr = state.items[kind]; [arr[index], arr[index + 1]] = [arr[index + 1], arr[index]]; render(); } }, '↓');
+  const rmBtn = el('button', { type: 'button', className: 'kb-circbtn kb-circbtn--rm', 'aria-label': S('remove-item'),
+    onClick: () => { state.items[kind].splice(index, 1); render(); } }, '−');
+  move.append(upBtn, downBtn, rmBtn);
+  head.appendChild(move);
+  row.appendChild(head);
+
+  const topRow = el('div', { className: 'mce-item__row' });
+
+  const titleInput = el('input', { className: 'kb-input', type: 'text', placeholder: S(cfg.titlePlaceholderKey) });
+  titleInput.value = item.title;
+  titleInput.addEventListener('input', () => { item.title = titleInput.value; refreshDerived(kind); });
+  topRow.appendChild(field(S('field-title'), titleInput, 'grow'));
+
+  const styleSelect = el('select', { className: 'kb-select' });
+  TITLE_STYLE_LEVELS.forEach((lvl, i) => {
+    const label = i === 0 ? S('title-style-none') : S('title-style-h', { n: i });
+    const opt = el('option', { value: lvl }, label);
+    if (item.titleStyle === lvl) opt.selected = true;
+    styleSelect.appendChild(opt);
+  });
+  styleSelect.addEventListener('change', () => { item.titleStyle = styleSelect.value; render(); });
+  topRow.appendChild(field(S('field-title-style'), styleSelect));
+
+  row.appendChild(topRow);
+
+  const contentArea = el('textarea', { className: 'kb-textarea mce-content', placeholder: S('ph-content'), rows: 5 });
+  contentArea.value = item.content;
+  contentArea.addEventListener('input', () => { item.content = contentArea.value; refreshDerived(kind); });
+  row.appendChild(field(S('field-content'), contentArea));
+
+  const toggleLabel = el('label', { className: 'mce-toggle' });
+  const toggleInput = el('input', cfg.exclusive
+    ? { type: 'radio', name: 'mce-default-' + kind }
+    : { type: 'checkbox' });
+  toggleInput.checked = !!item.isDefault;
+  toggleInput.addEventListener('change', () => {
+    if (cfg.exclusive) state.items[kind].forEach(it => { it.isDefault = false; });
+    item.isDefault = cfg.exclusive ? true : toggleInput.checked;
+    render();
+  });
+  toggleLabel.append(toggleInput, document.createTextNode(S(cfg.defaultFieldKey)));
+  row.appendChild(toggleLabel);
+
+  return row;
+}
+
+// ── Preview ──────────────────────────────────────────────────────────────────
+function mdNode(content) {
+  const div = document.createElement('div');
+  div.innerHTML = markdown(content || '');
+  return div;
+}
+
+function buildPreviewCard(kind) {
+  const card = el('div', { className: 'kb-card' });
+  card.appendChild(el('div', { className: 'kb-card__title' }, S('preview-title')));
+  const body = el('div', { id: 'mce-preview-' + kind, className: 'mce-preview-body' });
+  body.appendChild(buildPreviewBody(kind));
+  card.appendChild(body);
+  card.appendChild(el('p', { className: 'mce-hint' }, S('preview-note')));
+  return card;
+}
+
+function buildPreviewBody(kind) {
+  const items = state.items[kind];
+  if (!items.length) return el('p', { className: 'mce-hint' }, S('empty-items'));
+
+  if (kind === 'tab') {
+    let defaultIndex = items.findIndex(it => it.isDefault);
+    if (defaultIndex < 0) defaultIndex = 0;   // matches mdcms's own fallback rule
+    return makeTabs(items.map(it => ({ label: it.title, content: mdNode(it.content) })), { defaultIndex });
+  }
+
+  // Accordion: deliberately NOT the shared makeAccordion() helper. That helper
+  // enforces single-open-at-a-time (closing one item when another opens),
+  // which is a valid generic accordion pattern but does not match MD-CMS's
+  // own accordion — there, any number of items may be open simultaneously
+  // (see docs/reference-pages.md in kbenestad/mdcms). Reproducing that here
+  // means reusing the shared kb-accordion__* classes directly with independent
+  // per-item toggle state instead of the shared exclusive-open behaviour.
+  const wrap = el('div', { className: 'kb-accordion' });
+  items.forEach(it => {
+    const triggerId = uid(), panelId = uid();
+    let open = !!it.isDefault;
+
+    const trigger = el('button', { type: 'button', className: 'kb-accordion__trigger', id: triggerId, 'aria-expanded': String(open), 'aria-controls': panelId });
+    trigger.appendChild(document.createTextNode(it.title));
+    const chevron = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    chevron.setAttribute('viewBox', '0 0 24 24'); chevron.setAttribute('class', 'kb-accordion__chevron');
+    chevron.setAttribute('fill', 'none'); chevron.setAttribute('stroke', 'currentColor'); chevron.setAttribute('stroke-width', '2'); chevron.setAttribute('aria-hidden', 'true');
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path'); path.setAttribute('d', 'M6 9l6 6 6-6');
+    chevron.appendChild(path);
+    trigger.appendChild(chevron);
+
+    const panel = el('div', { className: 'kb-accordion__panel' + (open ? ' is-open' : ''), id: panelId, 'aria-labelledby': triggerId });
+    panel.appendChild(mdNode(it.content));
+
+    trigger.addEventListener('click', () => {
+      open = !open;
+      trigger.setAttribute('aria-expanded', String(open));
+      panel.classList.toggle('is-open', open);
+    });
+
+    const itemEl = el('div', { className: 'kb-accordion__item' });
+    itemEl.append(trigger, panel);
+    wrap.appendChild(itemEl);
+  });
+  return wrap;
+}
+
+// ── Output (generated code + actions) ────────────────────────────────────────
+function buildOutputCard(kind) {
+  const card = el('div', { className: 'kb-card' });
+  card.appendChild(el('div', { className: 'kb-card__title' }, S('output-title')));
+  const body = el('div', { id: 'mce-output-' + kind });
+  body.appendChild(buildOutputBody(kind));
+  card.appendChild(body);
+  return card;
+}
+
+function buildOutputBody(kind) {
+  const items = state.items[kind];
+  const container = el('div');
+
+  if (!items.length) {
+    container.appendChild(noteBox('info', S('output-empty')));
+    return container;
+  }
+  const incomplete = items.some(it => !it.title.trim() || !it.content.trim());
+  if (incomplete) container.appendChild(noteBox('warning', S('warn-incomplete')));
+
+  const pre = el('pre', { className: 'mce-code' });
+  pre.appendChild(el('code', null, buildSnippet(kind)));
+  container.appendChild(pre);
+  container.appendChild(el('p', { className: 'mce-hint' }, S('output-hint')));
+
+  const actions = el('div', { className: 'kb-actions' });
+  actions.append(
+    el('button', { className: 'kb-btn kb-btn--ghost', onClick: () => downloadSnippet(kind) }, S('download-snippet')),
+    el('button', { className: 'kb-btn kb-btn--primary', onClick: (e) => copySnippet(kind, e.currentTarget) }, S('copy'))
+  );
+  container.appendChild(actions);
+
+  return container;
+}
+
+function legacyCopy(text) {
+  const ta = el('textarea', { style: { position: 'fixed', opacity: '0', top: '0', left: '0' } });
+  ta.value = text;
+  document.body.appendChild(ta);
+  ta.select();
+  document.execCommand('copy');
+  ta.remove();
+}
+
+async function copySnippet(kind, btn) {
+  const text = buildSnippet(kind);
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(text);
+    else legacyCopy(text);
+  } catch (e) {
+    try { legacyCopy(text); } catch (e2) { return; }
+  }
+  const original = btn.textContent;
+  btn.textContent = S('copied');
+  btn.disabled = true;
+  setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 1500);
+}
+
+function downloadSnippet(kind) {
+  const text = buildSnippet(kind);
+  const filename = 'mdcms-' + currentVariantDef(kind).tagName + '.md';
+  const blob = new Blob([text], { type: 'text/markdown' });
+  const url = URL.createObjectURL(blob);
+  const a = el('a', { href: url, download: filename }); a.click();
+  URL.revokeObjectURL(url);
 }
 
 // Footer: kBenestad mark · © · repo link · About  —  version block (right).
@@ -242,7 +649,7 @@ function buildFooter() {
 // Right-aligned version block: vX.Y.Z • {commit} (links to the shipping PR)
 // on one line, the "last updated" date below.
 function buildVersionBlock() {
-  const wrap = el('div', { className: 'basis-version' });
+  const wrap = el('div', { className: 'mce-version' });
   wrap.append(
     el('a', { href: APP_VERSION.prUrl, target: '_blank', rel: 'noopener' },
       `v${APP_VERSION.version} • ${APP_VERSION.commit}`),
@@ -251,28 +658,18 @@ function buildVersionBlock() {
   return wrap;
 }
 
-// ── PDF output (pdf-lib) — minimal stub; build your real document here. ──────
-async function onDownload() {
-  const { PDFDocument, StandardFonts } = PDFLib;
-  const doc = await PDFDocument.create();
-  const page = doc.addPage();                 // A4 by default
-  const font = await doc.embedFont(StandardFonts.Helvetica);
-  page.drawText('basis', { x: 50, y: 790, size: 18, font });
-  const bytes = await doc.save();
-  const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
-  const a = el('a', { href: url, download: 'basis.pdf' }); a.click();
-  URL.revokeObjectURL(url);
-}
-
 // ── Boot ───────────────────────────────────────────────────────────────────
 try {
   CFG = await loadYamlConfig();   // fetch + parse config.yml (shared helper)
-  assertValidConfig(CFG);         // guard: catch HTML-instead-of-YAML (see below)
+  assertValidConfig(CFG);         // guard: catch HTML-instead-of-YAML (see above)
   normaliseConfig();
   applyAccent(CFG);               // apply config accent-colour to --accent
   initFontScale();                // restore persisted text size
-  lang = localStorage.getItem('basis-lang') || CFG['default-code'] || 'en';
+  lang = localStorage.getItem('mdcmseditor-lang') || CFG['default-code'] || 'en';
   applyLang(lang);
+  const draft = loadDraft();
+  state.variant = draft.variant;
+  state.items = draft.items;
   render();
 } catch (e) {
   document.getElementById('app').innerHTML =

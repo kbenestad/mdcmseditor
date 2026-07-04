@@ -1,6 +1,6 @@
 {
-  "name": "Template",
-  "short_name": "Template",
+  "name": "MD-CMS Editor",
+  "short_name": "MD-CMS Editor",
   "icons": [
     { "src": "favicon.svg", "type": "image/svg+xml", "sizes": "any" }
   ],
