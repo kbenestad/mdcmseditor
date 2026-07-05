@@ -624,7 +624,6 @@ function buildToolbar() {
     langSel,
     el('div', { className: 'spacer' }),
     sizeSeg, szLabel,
-    makeHelpButton(),
     makeThemeButton(),
     makeAboutButton(showAboutModal)
   );
@@ -635,7 +634,7 @@ function buildToolbar() {
 // since Help is meant to be the obviously-clickable one for a first-time,
 // non-technical user — see showHelpModal() for its content.
 function makeHelpButton() {
-  const btn = el('button', { type: 'button', className: 'kb-btn kb-btn--ghost kb-btn--sm', onClick: showHelpModal });
+  const btn = el('button', { type: 'button', className: 'kb-btn kb-btn--ghost', onClick: showHelpModal });
   btn.append(iconEl('help'), document.createTextNode(S('help-label')));
   return btn;
 }
@@ -749,7 +748,7 @@ function buildImportRow(kind) {
   clipboardBtn.append(iconEl('content_paste_go'), document.createTextNode(S('load-clipboard')));
   const validateBtn = el('button', { type: 'button', className: 'kb-btn kb-btn--ghost', onClick: () => runValidation(kind) });
   validateBtn.append(iconEl('data_check'), document.createTextNode(S('validate')));
-  row.append(fileInput, importBtn, clipboardBtn, validateBtn);
+  row.append(fileInput, importBtn, clipboardBtn, validateBtn, el('div', { className: 'spacer' }), makeHelpButton());
   return row;
 }
 
