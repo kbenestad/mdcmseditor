@@ -13,42 +13,46 @@ app that produces a business document (invoice, quote, packing slip, contract,
 (its own repo, its own hosting), with **no build step and no backend**.
 
 The whole app is **one `index.html`** (all HTML/CSS/JS inline) plus a
-`config.yml` and a bundled `assets/` folder. You build an app by copying this
+`config.yml` and a bundled `assets/` folder — all of it under `app/`, so the
+whole deployable unit is one directory. You build an app by copying this
 template and replacing the marked app-specific parts — never by hand-assembling
 the chrome, which is what guarantees the pixel-perfect match.
 
 ## Repository layout
 
 ```
-index.html          the app: chrome + boot + your form + your PDF (all inline)
-config.yml          branding + all UI strings (localisation), read at boot
-assets/
-  style.css         design tokens / colour scheme + reset + page shell   ┐ shared
-  ui.css            the kb-* UI component library                        │ design,
-  app.js            shared runtime (DOM, theme, modals, i18n, config, …) ┘ DO NOT EDIT
-  favicon.svg       placeholder icon — replace with a real set per app
-  site.webmanifest
-sync.sh             refresh the three shared files from bizdocs (see below)
+app/
+  index.html        the app: chrome + boot + your form + your PDF (all inline)
+  config.yml        branding + all UI strings (localisation), read at boot
+  help.yml          Help-modal content (kept separate from config.yml so it
+                    can be edited/reviewed independently of branding/strings)
+  assets/
+    style.css       design tokens / colour scheme + reset + page shell   ┐ shared
+    ui.css          the kb-* UI component library                        │ design,
+    app.js          shared runtime (DOM, theme, modals, i18n, config, …) ┘ DO NOT EDIT
+    favicon.svg     placeholder icon — replace with a real set per app
+    site.webmanifest
+sync.sh              refresh the three shared files from bizdocs (see below)
 CLAUDE.md · DESIGN.md · README.md
 ```
 
 ### The shared files are bundled, and must stay byte-identical
 
 Unlike an in-series bizdocs app (which links one shared `../assets/`), this app
-**bundles its own copy** of the design + runtime in `assets/` and references it
-locally (`assets/style.css`, not `../assets/style.css`). That is what makes the
-folder standalone.
+**bundles its own copy** of the design + runtime in `app/assets/` and
+references it locally (`assets/style.css`, not `../assets/style.css`, since
+`index.html` is a sibling in `app/`). That is what makes the folder standalone.
 
 The price of self-containment is duplication, so the discipline is strict:
-**`assets/style.css`, `assets/ui.css` and `assets/app.js` are byte-identical
-copies of bizdocs' shared files. Never hand-edit them.** A bizdocs UI change is
-pulled in wholesale, not patched here:
+**`app/assets/style.css`, `app/assets/ui.css` and `app/assets/app.js` are
+byte-identical copies of bizdocs' shared files. Never hand-edit them.** A
+bizdocs UI change is pulled in wholesale, not patched here:
 
 ```bash
 BIZDOCS_REF=main ./sync.sh --from-github   # pull the three shared files from GitHub
 # or, if a bizdocs checkout sits alongside this repo:
 ./sync.sh ../bizdocs/assets
-git diff -- assets                         # review, then commit
+git diff -- app/assets                     # review, then commit
 ```
 
 If you ever need app-specific CSS, it goes in `index.html`'s inline `<style>`;
@@ -61,7 +65,8 @@ drifts from the family. Don't.
 1. A tiny inline pre-paint script in `<head>` reads `localStorage['kb-theme']`
    and sets `data-theme` before first paint (avoids a flash). Keep it.
 2. CDN libraries load: `js-yaml` (config) and `pdf-lib` (PDF output).
-3. `assets/app.js` loads and defines the shared globals.
+3. `assets/app.js` (i.e. `app/assets/app.js`, fetched relative to `index.html`)
+   loads and defines the shared globals.
 4. The inline `<script>` runs: `loadYamlConfig()` fetches + parses `config.yml`,
    **`assertValidConfig()` validates it** (see below), `normaliseConfig()`
    flattens the `localisation:` block, `applyAccent()` / `initFontScale()` /
@@ -113,11 +118,11 @@ shape; that's the app's job.)
 
 ## Running / previewing locally
 
-The app `fetch`es `config.yml`, so it must be served over HTTP — opening
-`index.html` via `file://` will fail.
+The app `fetch`es `config.yml` (and `help.yml`), so it must be served over
+HTTP — opening `index.html` via `file://` will fail.
 
 ```bash
-python3 -m http.server 8000
+cd app && python3 -m http.server 8000
 # then open http://localhost:8000/
 ```
 
@@ -133,12 +138,14 @@ CHROME=/path/to/chromium      # e.g. /opt/pw-browsers/chromium-*/chrome-linux/ch
   --screenshot=out.png "http://localhost:8000/index.html"
 ```
 
-`--virtual-time-budget` lets the JS-built UI settle before the screenshot.
+(serve from inside `app/`, as above, so the URL is `.../index.html` with no
+`app/` prefix.) `--virtual-time-budget` lets the JS-built UI settle before the
+screenshot.
 
 **Caveat:** in sandboxed environments the browser often cannot reach the CDNs,
 so `js-yaml` fails to load and you'll see the config error. To verify a full
 render, vendor `js-yaml` locally **for the test only** — download it, drop a copy
-into `assets/`, point a throwaway copy of `index.html` at the local file, and
+into `app/assets/`, point a throwaway copy of `index.html` at the local file, and
 screenshot that. Delete the throwaway files afterwards; never commit them.
 (`pdf-lib` is only needed to generate a PDF, not for the initial render.) Worth
 screenshotting after a change: the full form, dark mode, the About modal, and a
@@ -222,4 +229,5 @@ Each PR description must:
 - **PDF output uses pdf-lib.** It can draw from scratch and embed/append
   existing PDF/image bytes (receipts, signatures), so it covers every app.
 - **The container is ephemeral / hosting is static.** Commit your work; deploy
-  `index.html` + `config.yml` + `assets/` together as plain static files.
+  the whole `app/` directory (`index.html` + `config.yml` + `help.yml` +
+  `assets/`) together as plain static files.

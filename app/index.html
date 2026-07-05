@@ -90,6 +90,17 @@
    it holds regardless of stylesheet order) — not a fork of the shared rule. */
 .kb-note[hidden] { display: none; }
 
+/* Icons (see the "Icons" section of the inline script for which specific
+   spots get one — everything else in the app stays text-only). .kb-btn svg
+   is already sized by ui.css; these cover the other two contexts an icon
+   appears in: a card title, and the callout Inline/Reusable mode buttons
+   (plain kb-seg buttons, which have no icon layout of their own). */
+.mce-icon { display: inline-flex; flex-shrink: 0; }
+.mce-icon svg { display: block; }
+.kb-card__title .mce-icon svg { width: 15px; height: 15px; }
+.mce-mode-btn { display: inline-flex; align-items: center; gap: 6px; }
+.mce-mode-btn .mce-icon svg { width: 14px; height: 14px; }
+
 .mce-panel { padding-top: 18px; }
 
 .mce-import-row { margin-bottom: 18px; }
@@ -187,6 +198,8 @@
  * markdown, …) are visible in here. */
 
 let CFG;          // parsed config.yml
+let HELP;         // parsed help.yml (kept separate so it can be edited/reviewed
+                  // independently of branding/UI strings — see help.yml's header)
 let lang = 'en';  // active UI language
 
 // Footer version metadata (see CLAUDE.md → Versioning / Footer). Bump these
@@ -232,10 +245,65 @@ function applyLang(lc) {
   CFG['about-title']   = a.title   || 'About';
   CFG['about-content'] = a.content || '';
   CFG['about-button']  = a.button  || 'Close';
+  const h = (HELP && (HELP[lc] || HELP[CFG['default-code']])) || {};
+  CFG['help-title']   = h.title   || 'Help';
+  CFG['help-content'] = h.content || '';
+  CFG['help-button']  = h.button  || 'Close';
+}
+
+async function loadHelpConfig() {
+  HELP = await loadYamlConfig('help.yml', { requireLocalisation: false });
 }
 
 function showAboutModal() {
   return kbAbout({ title: CFG['about-title'], contentMD: CFG['about-content'], closeLabel: CFG['about-button'] });
+}
+
+function showHelpModal() {
+  return kbAbout({ title: CFG['help-title'], contentMD: CFG['help-content'], closeLabel: CFG['help-button'] });
+}
+
+// ── Icons ────────────────────────────────────────────────────────────────────
+// Only these specific spots get an icon (buttons/labels below); everything
+// else in the app stays text-only by design. Source SVGs are Google Material
+// Symbols (Outlined), fetched once at boot and kept as real files in
+// assets/icons/ rather than inlined as JS string constants like KB_ICON/
+// MCE_TITLE_ICON — there are enough of these that a real asset per icon (one
+// each) is more maintainable than one large string table, and it's exactly
+// what "assets/" is for. Each file already has fill="currentColor" baked in,
+// so icons follow the button/card-title text colour (and therefore the
+// active theme) once inlined into the DOM.
+const ICON_NAMES = ['content_paste_go', 'upload', 'data_check', 'iframe', 'cycle', 'help', 'article', 'cards_stack', 'preview', 'code_blocks'];
+let ICONS = {};
+
+async function loadIcons() {
+  const entries = await Promise.all(ICON_NAMES.map(async (name) => {
+    try {
+      const res = await fetch('assets/icons/' + name + '.svg');
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return [name, await res.text()];
+    } catch (e) {
+      return [name, '']; // fail soft — render without that one icon rather than breaking boot
+    }
+  }));
+  ICONS = Object.fromEntries(entries);
+}
+
+// A small inline SVG for one of the ICON_NAMES, or an empty (harmless) span
+// if that icon failed to load. `aria-hidden` is already on the SVG itself.
+function iconEl(name) {
+  const span = el('span', { className: 'mce-icon' });
+  span.innerHTML = ICONS[name] || '';
+  return span;
+}
+
+// kb-card__title with a leading icon — every card title in this app goes
+// through here so the icon/text/count layout stays consistent.
+function cardTitle(text, iconName) {
+  const t = el('div', { className: 'kb-card__title' });
+  if (iconName) t.appendChild(iconEl(iconName));
+  t.appendChild(el('span', null, text));
+  return t;
 }
 
 // ── Content sanitisation ─────────────────────────────────────────────────────
@@ -568,6 +636,15 @@ function buildToolbar() {
   return toolbar;
 }
 
+// A visible, labelled button (not an icon-only kb-iconbtn like theme/about)
+// since Help is meant to be the obviously-clickable one for a first-time,
+// non-technical user — see showHelpModal() for its content.
+function makeHelpButton() {
+  const btn = el('button', { type: 'button', className: 'kb-btn kb-btn--ghost', onClick: showHelpModal });
+  btn.append(iconEl('help'), document.createTextNode(S('help-label')));
+  return btn;
+}
+
 // Header: brand wordmark (kBenestad mark + org/tagline) + right-aligned title.
 const MCE_TITLE_ICON = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="8 6 3 12 8 18"/><polyline points="16 6 21 12 16 18"/></svg>';
 
@@ -671,10 +748,13 @@ function buildImportRow(kind) {
     if (!file) return;
     importTextForKind(kind, await file.text());
   });
-  const importBtn = el('button', { type: 'button', className: 'kb-btn kb-btn--ghost', onClick: () => fileInput.click() }, S('import-md'));
-  const clipboardBtn = el('button', { type: 'button', className: 'kb-btn kb-btn--ghost', onClick: () => importFromClipboard(kind) }, S('load-clipboard'));
-  const validateBtn = el('button', { type: 'button', className: 'kb-btn kb-btn--ghost', onClick: () => runValidation(kind) }, S('validate'));
-  row.append(fileInput, importBtn, clipboardBtn, validateBtn);
+  const importBtn = el('button', { type: 'button', className: 'kb-btn kb-btn--ghost', onClick: () => fileInput.click() });
+  importBtn.append(iconEl('upload'), document.createTextNode(S('import-md')));
+  const clipboardBtn = el('button', { type: 'button', className: 'kb-btn kb-btn--ghost', onClick: () => importFromClipboard(kind) });
+  clipboardBtn.append(iconEl('content_paste_go'), document.createTextNode(S('load-clipboard')));
+  const validateBtn = el('button', { type: 'button', className: 'kb-btn kb-btn--ghost', onClick: () => runValidation(kind) });
+  validateBtn.append(iconEl('data_check'), document.createTextNode(S('validate')));
+  row.append(fileInput, importBtn, clipboardBtn, validateBtn, el('div', { className: 'spacer' }), makeHelpButton());
   return row;
 }
 
@@ -918,7 +998,7 @@ function buildCodeBlockWithActions(text, filename, hintKey) {
 // ── Preview / Output dispatch ─────────────────────────────────────────────────
 function buildPreviewCard(kind) {
   const card = el('div', { className: 'kb-card' });
-  card.appendChild(el('div', { className: 'kb-card__title' }, S('preview-title')));
+  card.appendChild(cardTitle(S('preview-title'), 'preview'));
   const body = el('div', { id: 'mce-preview-' + kind, className: 'mce-preview-body' });
   body.appendChild(buildPreviewBody(kind));
   card.appendChild(body);
@@ -935,7 +1015,7 @@ function buildPreviewBody(kind) {
 
 function buildOutputCard(kind) {
   const card = el('div', { className: 'kb-card' });
-  card.appendChild(el('div', { className: 'kb-card__title' }, S('output-title')));
+  card.appendChild(cardTitle(S('output-title'), 'code_blocks'));
   const body = el('div', { id: 'mce-output-' + kind });
   body.appendChild(buildOutputBody(kind));
   card.appendChild(body);
@@ -973,7 +1053,7 @@ function buildItemsCard(kind) {
   const items = state.items[kind];
   const card = el('div', { className: 'kb-card' });
 
-  const titleRow = el('div', { className: 'kb-card__title' }, S('items-title'));
+  const titleRow = cardTitle(S('items-title'), 'cards_stack');
   const countEl = el('span', { className: 'count' }, String(items.length));
   titleRow.appendChild(countEl);
   card.appendChild(titleRow);
@@ -1242,7 +1322,7 @@ function buildPagePanel() {
 
 function buildPageContentCard() {
   const card = el('div', { className: 'kb-card' });
-  card.appendChild(el('div', { className: 'kb-card__title' }, S('page-content-title')));
+  card.appendChild(cardTitle(S('page-content-title'), 'article'));
   const editorHost = makeEditorHost();
   card.appendChild(editorHost);
   const editor = mountEditor(editorHost, state.page.content, '420px', 'ph-page-content', (md) => {
@@ -1279,14 +1359,15 @@ function buildCalloutPanel() {
 
 function buildCalloutCard() {
   const card = el('div', { className: 'kb-card' });
-  card.appendChild(el('div', { className: 'kb-card__title' }, S('callout-title')));
+  card.appendChild(cardTitle(S('callout-title'), 'cards_stack'));
 
   const modeRow = el('div', { className: 'mce-variant-row' });
   modeRow.appendChild(el('span', { className: 'kb-label' }, S('callout-mode-label')));
   const modeSeg = el('div', { className: 'kb-seg', role: 'group', 'aria-label': S('callout-mode-label') });
   const modeButtons = [];
-  [['inline', 'callout-mode-inline'], ['reusable', 'callout-mode-reusable']].forEach(([modeId, key]) => {
-    const btn = el('button', { type: 'button' }, S(key));
+  [['inline', 'callout-mode-inline', 'iframe'], ['reusable', 'callout-mode-reusable', 'cycle']].forEach(([modeId, key, iconName]) => {
+    const btn = el('button', { type: 'button', className: 'mce-mode-btn' });
+    btn.append(iconEl(iconName), document.createTextNode(S(key)));
     if (state.callout.mode === modeId) btn.classList.add('is-active');
     btn.addEventListener('click', () => {
       if (state.callout.mode === modeId) return;
@@ -1538,7 +1619,8 @@ function buildVersionBlock() {
 
 // ── Boot ───────────────────────────────────────────────────────────────────
 try {
-  CFG = await loadYamlConfig();   // fetch + parse config.yml (shared helper)
+  const [cfg] = await Promise.all([loadYamlConfig(), loadIcons(), loadHelpConfig()]);
+  CFG = cfg;                       // fetch + parse config.yml (shared helper)
   assertValidConfig(CFG);         // guard: catch HTML-instead-of-YAML (see above)
   normaliseConfig();
   applyAccent(CFG);               // apply config accent-colour to --accent

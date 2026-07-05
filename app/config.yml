@@ -46,6 +46,8 @@ localisation:
     ui:
       subtitle: "Page, tab, accordion & callout editor for MD-CMS"
 
+      help-label: "Help"
+
       blocktype-page: "Page"
       blocktype-tab: "Tabs"
       blocktype-accordion: "Accordion"
@@ -175,6 +177,8 @@ localisation:
         **Design-System:** [kbenestad/bizdocs](https://github.com/kbenestad/bizdocs)
     ui:
       subtitle: "Seiten-, Tab-, Akkordeon- und Callout-Editor für MD-CMS"
+
+      help-label: "Hilfe"
 
       blocktype-page: "Seite"
       blocktype-tab: "Tabs"
