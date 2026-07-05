@@ -86,6 +86,43 @@ entirely in the identity problem, not the rendering. Recommend prototyping
 option 1 (HTML comment marker) first since it's the only one that doesn't
 depend on an unverified assumption about Toast UI's internals.
 
+## Dependent on MD-CMS core development
+
+These ideas are blocked on decisions/features landing in `kbenestad/mdcms`
+itself, not on anything in this repo — noted here so they aren't lost, not
+scheduled.
+
+- **Page as a block editor.** Once MD-CMS supports combining blocks into a
+  page body, the Page tab should become a repeatable, ordered block list —
+  like the Tabs/Accordion item editor, but heterogeneous: each entry is a
+  Markdown block (Toast editor) or a Callout (reusing the existing Callout
+  builder), with Tabs/Accordion joining the list too. Output is the
+  concatenation of each block's generated snippet in list order. **Import
+  page** would be the reverse: split a page's raw Markdown on
+  `​```mdcms​```` fences (reusing the existing per-kind import parsers for
+  callout/tabs/accordion) and turn the plain-text gaps between fences into
+  Markdown blocks, populating the block list.
+- **Steps** and **Diagrams (Mermaid)** as new block kinds, once MD-CMS's
+  renderer supports them as core features.
+- **Plugin support**, if MD-CMS splits into core + plugins (non-core
+  features living outside the main renderer). Recommended shape: a
+  declarative manifest per plugin (fence key, label, field list, an output
+  template using the same `{placeholder}` token convention `config.yml`
+  already uses) rather than loadable plugin JS — the editor only needs to
+  know how to generate a plugin's `​```mdcms <plugin-key>​```` block, not
+  how it renders on the actual site, so a thin manifest is enough. A
+  `plugin-source` config setting (folder path or URL) would let the editor
+  fetch an index of manifests at boot, the same way `loadYamlConfig()`/
+  `loadHelpConfig()` already fetch `config.yml`/`help.yml`, and build one
+  generic "plugin block" panel per manifest (reusing `field()`/`noteBox()`/
+  `buildKindPanel()`, which are already fairly generic). Preview would stay
+  simplified/generic, same as the existing Callout preview note. Executable
+  plugin code (dynamically imported JS registered into `BLOCK_TYPES`) was
+  considered and rejected for now — it means running third-party JS in the
+  editor and coupling plugin authors to the editor's internal API/state
+  shape, which cuts against the config-driven, no-build-step philosophy
+  everything else here follows.
+
 ## Nearer-term ideas
 
 - Drag-and-drop item reordering (currently ↑/↓ buttons only).
