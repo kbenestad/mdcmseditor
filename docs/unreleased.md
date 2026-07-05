@@ -15,3 +15,9 @@ unreleased.
   non-technical getting-started guidance — including how to bring an
   existing `​```mdcms​```` block (or `callouts:` config entry) back in via
   Import .md / Load from clipboard to fix it.
+- All runtime app files (`index.html`, `config.yml`, `assets/`) moved into an
+  `app/` subdirectory, so the whole deployable unit is one directory; process
+  docs (`CLAUDE.md`, `DESIGN.md`, `README.md`, `docs/`, `sync.sh`) stay at the
+  repo root. Help-modal content moved out of `config.yml` into its own
+  `app/help.yml`, fetched at boot alongside `config.yml`, so it can be
+  edited/reviewed independently of branding and UI strings.

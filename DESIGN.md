@@ -166,7 +166,7 @@ PDF; the engine is an implementation detail, but standardise on pdf-lib.
 Before shipping, an app is "family-identical" when:
 
 1. `assets/style.css`, `ui.css`, `app.js` are unmodified copies (verify with
-   `sync.sh` + `git diff -- assets` showing nothing).
+   `sync.sh` + `git diff -- app/assets` showing nothing).
 2. The `<head>` order and the pre-paint theme script are intact.
 3. The chrome is assembled by the shared helpers (toolbar, header, footer) — no
    bespoke re-implementation.

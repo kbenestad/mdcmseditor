@@ -43,22 +43,6 @@ localisation:
 
         **MD-CMS:** [kbenestad/mdcms](https://github.com/kbenestad/mdcms)
         **Design system:** [kbenestad/bizdocs](https://github.com/kbenestad/bizdocs)
-    help:
-      title: "Help"
-      button: "Close"
-      content: |
-        ### Getting started
-        - Pick a tab — **Page** for a whole page's Markdown, or **Tabs** / **Accordion** / **Callout** for one block to embed in a page.
-        - Fill in the fields. A live preview and the generated code update as you type.
-        - Click **Copy to clipboard** (or **Download .md**) and paste the result into your MD-CMS page. For a reusable callout, the second block goes into `config.yml` instead.
-
-        ### Fixing an existing block
-        Already have an `mdcms` code block, or a `callouts:` entry in `config.yml`, that needs a change?
-        - Copy it — from your page, or from `config.yml`.
-        - On the matching tab, click **Load from clipboard** (or **Import .md** if you saved it to a file first).
-        - Edit it like normal, then copy the corrected version back out.
-
-        Click **Validate** any time to check for missing fields or other issues before you copy.
     ui:
       subtitle: "Page, tab, accordion & callout editor for MD-CMS"
 
@@ -191,23 +175,6 @@ localisation:
 
         **MD-CMS:** [kbenestad/mdcms](https://github.com/kbenestad/mdcms)
         **Design-System:** [kbenestad/bizdocs](https://github.com/kbenestad/bizdocs)
-    help:
-      title: "Hilfe"
-      button: "Schließen"
-      content: |
-        ### Erste Schritte
-        - Einen Tab wählen — **Seite** für den gesamten Markdown-Inhalt einer Seite, oder **Tabs** / **Akkordeon** / **Callout** für einen einzelnen Block zum Einbetten in eine Seite.
-        - Felder ausfüllen. Vorschau und erzeugter Code werden beim Tippen live aktualisiert.
-        - Auf **In die Zwischenablage kopieren** (oder **Als .md herunterladen**) klicken und das Ergebnis in Ihre MD-CMS-Seite einfügen. Bei einem wiederverwendbaren Callout gehört der zweite Block stattdessen in die config.yml.
-
-        ### Einen bestehenden Block ändern
-        Sie haben bereits einen `mdcms`-Codeblock oder einen `callouts:`-Eintrag in der config.yml, den Sie ändern möchten?
-        - Kopieren Sie ihn — von Ihrer Seite oder aus der config.yml.
-        - Klicken Sie auf dem passenden Tab auf **Aus Zwischenablage laden** (oder **Aus .md importieren**, falls Sie ihn zuvor in einer Datei gespeichert haben).
-        - Bearbeiten Sie ihn wie gewohnt und kopieren Sie die korrigierte Version wieder heraus.
-
-        Klicken Sie jederzeit auf **Prüfen**, um vor dem Kopieren auf
-        fehlende Felder oder andere Probleme zu prüfen.
     ui:
       subtitle: "Seiten-, Tab-, Akkordeon- und Callout-Editor für MD-CMS"
 

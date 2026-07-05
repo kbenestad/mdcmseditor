@@ -2,10 +2,10 @@
 # =============================================================================
 # basis/sync.sh — drop the latest bizdocs UI into this standalone app.
 #
-# basis bundles its OWN copy of the shared design + runtime (assets/style.css,
-# assets/ui.css, assets/app.js) so it can run on its own, outside the bizdocs
-# monorepo. Those three files are meant to stay byte-identical to bizdocs'
-# shared assets/. Run this after a bizdocs UI change to pull it in.
+# basis bundles its OWN copy of the shared design + runtime (app/assets/style.css,
+# app/assets/ui.css, app/assets/app.js) so it can run on its own, outside the
+# bizdocs monorepo. Those three files are meant to stay byte-identical to
+# bizdocs' shared assets/. Run this after a bizdocs UI change to pull it in.
 #
 # Usage:
 #   ./sync.sh [PATH_TO_BIZDOCS_ASSETS]
@@ -20,7 +20,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-DEST="assets"
+DEST="app/assets"
 SHARED=(style.css ui.css app.js)
 
 if [[ "${1:-}" == "--from-github" ]]; then

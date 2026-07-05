@@ -198,6 +198,8 @@
  * markdown, …) are visible in here. */
 
 let CFG;          // parsed config.yml
+let HELP;         // parsed help.yml (kept separate so it can be edited/reviewed
+                  // independently of branding/UI strings — see help.yml's header)
 let lang = 'en';  // active UI language
 
 // Footer version metadata (see CLAUDE.md → Versioning / Footer). Bump these
@@ -243,10 +245,14 @@ function applyLang(lc) {
   CFG['about-title']   = a.title   || 'About';
   CFG['about-content'] = a.content || '';
   CFG['about-button']  = a.button  || 'Close';
-  const h = (loc[lc] && loc[lc].help) || (loc[CFG['default-code']] && loc[CFG['default-code']].help) || {};
+  const h = (HELP && (HELP[lc] || HELP[CFG['default-code']])) || {};
   CFG['help-title']   = h.title   || 'Help';
   CFG['help-content'] = h.content || '';
   CFG['help-button']  = h.button  || 'Close';
+}
+
+async function loadHelpConfig() {
+  HELP = await loadYamlConfig('help.yml', { requireLocalisation: false });
 }
 
 function showAboutModal() {
@@ -1613,7 +1619,7 @@ function buildVersionBlock() {
 
 // ── Boot ───────────────────────────────────────────────────────────────────
 try {
-  const [cfg] = await Promise.all([loadYamlConfig(), loadIcons()]);
+  const [cfg] = await Promise.all([loadYamlConfig(), loadIcons(), loadHelpConfig()]);
   CFG = cfg;                       // fetch + parse config.yml (shared helper)
   assertValidConfig(CFG);         // guard: catch HTML-instead-of-YAML (see above)
   normaliseConfig();
