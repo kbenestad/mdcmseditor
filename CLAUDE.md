@@ -60,6 +60,23 @@ if you need app-specific copy, it goes through `config.yml` + `S()`. The moment
 you edit the shared files directly, drop-in sync stops being clean and the app
 drifts from the family. Don't.
 
+### A bug *in* the shared layer is not fixed here
+
+If something in `style.css`, `ui.css`, or `app.js` is actually broken — not
+"this app needs different behaviour" but "this component/rule is wrong for
+everyone who uses it" — the fix does **not** belong in this app's inline
+`<style>`/`<script>` as a local override or workaround. An override here only
+papers over the symptom in one app; every other app built from the template,
+and the template itself, keeps shipping the bug.
+
+Fix it at the source instead: **[kbenestad/appdevelopment](https://github.com/kbenestad/appdevelopment)**,
+the private repo this app's template was copied from. Land the fix (and, if the
+bug is in a component this app's template doesn't yet exercise, add the minimal
+demo code needed to cover it there too) on its `development` branch, then pull
+the corrected file(s) back into this repo with `sync.sh` like any other shared-UI
+update. Only genuinely app-specific behaviour gets an inline override; a shared
+bug gets fixed once, upstream, for every app.
+
 ## How the app boots
 
 1. A tiny inline pre-paint script in `<head>` reads `localStorage['kb-theme']`
@@ -156,6 +173,20 @@ non-English language.
 Day-to-day development happens on the **`development`** branch, not `main`.
 Before a push to `main`, open a pull request — **the user decides when a PR is
 opened**, don't push to `main` unopenedly on your own initiative.
+
+**Never invent a one-off, task-specific branch** (`claude/whatever-slug`,
+`fix/this-bug`, or similar) for work on this repo. There are exactly two
+long-lived branches — `development` and `main` — and every change, whether
+it's a one-line fix or a multi-day feature, commits to `development` (or,
+for the rare direct-to-main bookkeeping commit described under Versioning
+below, to `main`). A task-scoped branch fragments history, makes
+`docs/unreleased.md` inaccurate the moment a second task branches off the
+same tip, and leaves behind a stray ref nobody cleans up. If a session's
+own harness/runtime forces a differently-named branch for that session,
+treat that as an operational constraint of that session only — it does not
+change this rule for how the *app's* development is organised, and work
+should be rebased/merged into `development` rather than left stranded on a
+throwaway branch.
 
 While on `development`, keep these docs current:
 

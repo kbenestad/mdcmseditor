@@ -90,16 +90,6 @@
    it holds regardless of stylesheet order) — not a fork of the shared rule. */
 .kb-note[hidden] { display: none; }
 
-/* ui.css's .kb-tab sits flush on .kb-tablist's border via `margin-bottom:
-   -1px`, which throws off the tablist's scrollHeight by a stray 1px in
-   Chromium. Per spec, `.kb-tablist { overflow-x: auto }` with no explicit
-   overflow-y forces overflow-y to compute to auto as well — so that 1px
-   mismatch is enough to paint a real vertical scrollbar over the tab row
-   even though every tab already fits horizontally. This one-line override
-   suppresses just the vertical axis; the intentional horizontal scroll for
-   an overflowing tab row (many tabs / narrow viewport) is untouched. */
-.kb-tablist { overflow-y: hidden; }
-
 /* Icons (see the "Icons" section of the inline script for which specific
    spots get one — everything else in the app stays text-only). .kb-btn svg
    is already sized by ui.css; these cover the other two contexts an icon
