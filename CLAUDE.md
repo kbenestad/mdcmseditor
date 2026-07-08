@@ -60,22 +60,38 @@ if you need app-specific copy, it goes through `config.yml` + `S()`. The moment
 you edit the shared files directly, drop-in sync stops being clean and the app
 drifts from the family. Don't.
 
-### A bug *in* the shared layer is not fixed here
+### A bug *in* the shared layer is not fixed here — or in appdevelopment
 
 If something in `style.css`, `ui.css`, or `app.js` is actually broken — not
 "this app needs different behaviour" but "this component/rule is wrong for
 everyone who uses it" — the fix does **not** belong in this app's inline
-`<style>`/`<script>` as a local override or workaround. An override here only
-papers over the symptom in one app; every other app built from the template,
-and the template itself, keeps shipping the bug.
+`<style>`/`<script>` as a local override or workaround, and it does **not**
+belong hand-patched into this repo's bundled `app/assets/` copies either.
+Either one only fixes the symptom in this one app; every other app in the
+family, and the template itself, keeps shipping the bug.
 
-Fix it at the source instead: **[kbenestad/appdevelopment](https://github.com/kbenestad/appdevelopment)**,
-the private repo this app's template was copied from. Land the fix (and, if the
-bug is in a component this app's template doesn't yet exercise, add the minimal
-demo code needed to cover it there too) on its `development` branch, then pull
-the corrected file(s) back into this repo with `sync.sh` like any other shared-UI
-update. Only genuinely app-specific behaviour gets an inline override; a shared
-bug gets fixed once, upstream, for every app.
+Fix it at the true, canonical source, always:
+**[kbenestad/bizdocs](https://github.com/kbenestad/bizdocs)** `assets/` —
+pushed straight to its `main` branch (bizdocs has no `development` branch;
+see its own CLAUDE.md). That is the *one* original copy of
+`style.css`/`ui.css`/`app.js`. Every basis-template app — including
+[kbenestad/appdevelopment](https://github.com/kbenestad/appdevelopment), the
+private repo this app's own template was copied from — bundles a
+byte-identical *copy* of bizdocs' files and is downstream of it. Fixing the
+bug only in appdevelopment is not enough: appdevelopment's `assets/` is
+itself just another synced copy, not the original, and the next sync there
+would silently overwrite a hand-patch anyway.
+
+Once the fix lands in bizdocs `main`:
+1. In `appdevelopment` (on its `development` branch), run its `sync.sh` to
+   pull the fix in — and if the bug is in a component appdevelopment's own
+   template doesn't yet exercise, add the minimal demo code needed to cover
+   it, so future apps copied from the template inherit a working reference.
+2. In **this** repo, run `sync.sh` to pull the same fix in here.
+
+Only genuinely app-specific behaviour gets an inline override in this repo;
+a shared bug gets fixed exactly once, in bizdocs, and flows downhill to
+every app in the family via `sync.sh`.
 
 ## How the app boots
 
@@ -174,19 +190,36 @@ Day-to-day development happens on the **`development`** branch, not `main`.
 Before a push to `main`, open a pull request — **the user decides when a PR is
 opened**, don't push to `main` unopenedly on your own initiative.
 
-**Never invent a one-off, task-specific branch** (`claude/whatever-slug`,
-`fix/this-bug`, or similar) for work on this repo. There are exactly two
-long-lived branches — `development` and `main` — and every change, whether
-it's a one-line fix or a multi-day feature, commits to `development` (or,
-for the rare direct-to-main bookkeeping commit described under Versioning
-below, to `main`). A task-scoped branch fragments history, makes
+**There are exactly two branches for this repo: `development` and `main`.
+Never use, invent, or leave work stranded on any other branch — no
+`claude/whatever-slug`, no `fix/this-bug`, no per-task branch of any kind,
+ever, for any reason.** A task-scoped branch fragments history, makes
 `docs/unreleased.md` inaccurate the moment a second task branches off the
-same tip, and leaves behind a stray ref nobody cleans up. If a session's
-own harness/runtime forces a differently-named branch for that session,
-treat that as an operational constraint of that session only — it does not
-change this rule for how the *app's* development is organised, and work
-should be rebased/merged into `development` rather than left stranded on a
-throwaway branch.
+same tip, and leaves a stray ref nobody cleans up. This has happened
+repeatedly (e.g. `claude/add-icons-help-modal`, `claude/nav-line-overflow-…`)
+and every instance of it is a mistake to not repeat, not a precedent to
+follow.
+
+This rule applies **even when a session's own harness/runtime hands you a
+different branch name as that session's default** (Claude Code on the web
+does this routinely). That default is a mechanism of the *session* — it is
+not a decision about where this app's history lives, and it is never a
+license to commit there and call the work done. When that happens:
+
+1. Do the work and commit it — you may have no choice about the harness
+   making its own branch current.
+2. Before finishing, create `development` if it doesn't already exist
+   (branch it from `main`, or from the harness branch's tip if that tip
+   has newer work `main` doesn't), and push your commits there too — via
+   fast-forward, merge, or a fresh branch-and-push of the same tip, whichever
+   applies. `development` must end up with every commit, in the same order.
+3. Treat the task as unfinished until `development` on the remote actually
+   has the work. A commit that exists only on a throwaway harness branch —
+   however "pushed" it looks — is not done.
+
+If you are ever unsure whether this rule was actually satisfied, run
+`git ls-remote --heads origin` and check `development` is there and current
+— don't assume from having pushed *somewhere*.
 
 While on `development`, keep these docs current:
 
