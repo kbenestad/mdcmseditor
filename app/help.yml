@@ -29,6 +29,9 @@ en:
 
     Click **Validate** any time to check for missing fields or other issues before you copy.
 
+    ### Front matter
+    The **Front matter** card on the Page tab holds page metadata (title, sort order, dates, and more) — it's written as a YAML block at the top of the exported file, ahead of your Markdown body. Importing a page with a front matter block fills these fields in automatically; a key your config.yml doesn't define still shows up under **Additional keys** so nothing gets lost.
+
 de:
   title: "Hilfe"
   button: "Schließen"
@@ -45,3 +48,6 @@ de:
     - Bearbeiten Sie ihn wie gewohnt und kopieren Sie die korrigierte Version wieder heraus.
 
     Klicken Sie jederzeit auf **Prüfen**, um vor dem Kopieren auf fehlende Felder oder andere Probleme zu prüfen.
+
+    ### Frontmatter
+    Die Karte **Frontmatter** auf dem Seiten-Tab enthält Metadaten der Seite (Titel, Sortierung, Daten und mehr) — sie wird als YAML-Block am Anfang der exportierten Datei geschrieben, vor Ihrem Markdown-Inhalt. Beim Import einer Seite mit einem Frontmatter-Block werden diese Felder automatisch ausgefüllt; ein Schlüssel, den Ihre config.yml nicht definiert, erscheint trotzdem unter **Zusätzliche Schlüssel**, damit nichts verloren geht.

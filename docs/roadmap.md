@@ -10,10 +10,6 @@ step: one Toast UI Editor surface for a page's Markdown body, with the same
 Import/Load-from-clipboard/Validate actions as every other panel. It
 deliberately does **not** yet cover:
 
-- **Front matter** (`title`, `sort`, `section-id`, `draft`, `created`, …) —
-  see `kbenestad/mdcms`'s `docs/reference-pages.md` for the full key set. The
-  natural next step once the body editor itself is solid — see "Long-term
-  goal: site-aware editing" below for the concrete design.
 - **Combining blocks into the page** — today Tabs/Accordion/Callout are
   separate panels with their own output; the Page tab doesn't (yet) let you
   drop a generated block into the body you're writing. See "Embedding mdcms
@@ -142,9 +138,13 @@ floated in conversation but never previously written to this doc.)
 
 ### Front matter, sort, sections, categories
 
-- Front matter fields on the Page tab: title, sort, section-id, draft,
+- ~~Front matter fields on the Page tab: title, sort, section-id, draft,
   author, created, modified, description, keywords, language — the exact key
-  set in `reference-pages.md`.
+  set in `reference-pages.md`.~~ Shipped: a config-driven Front matter card
+  (`config.yml`'s `frontmatter:` block), extracted on import and prepended to
+  the exported `.md`. What's left below is specifically the parts that need
+  the editor to *read* the rest of the site (`nav.yml`), not the fields
+  themselves.
 - Sort picking needs no write-back: since `nav.yml` is fully regenerated from
   frontmatter on every `mdcms build`, the editor only needs to *read*
   `nav.yml` to show the sort values already used in the target section (so

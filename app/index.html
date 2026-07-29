@@ -24,8 +24,31 @@
   and `accordion` share BLOCK_TYPES (an items list + a variant). `callout` has
   two modes — inline (title/icon/body → one `​```mdcms callout-*​``` block) and
   reusable (a config.yml `callouts:` message, referenced from pages by key) —
-  see the "Callout" section. `page` is a single Markdown body (frontmatter is
-  intentionally out of scope for now — see docs/roadmap.md).
+  see the "Callout" section. `page` is a Markdown body plus a config-driven
+  Front matter card (see "Front matter" section below) — its fields are
+  mdcms's own frontmatter keys (kbenestad/mdcms's docs/reference-pages.md).
+
+  Front matter: two js-yaml behaviours that would otherwise silently corrupt a
+  round-trip, both verified directly against js-yaml 4.1.0 (not assumed) —
+   - js-yaml's DEFAULT_SCHEMA resolves an unquoted date-only value
+     (`created: 2026-05-18`, no time) to a JS Date at UTC midnight — verified:
+     `jsyaml.load('created: 2026-05-18').created instanceof Date` is true, and
+     the same holds for any ISO `T`-separated value with seconds
+     (`2026-05-18T14:30:00`). mdcms's own space-separated `YYYY-MM-DD HH:MM`
+     format happens to survive as a string either way, but relying on that
+     exact format never being reformatted is fragile, so front matter parsing
+     always passes `{ schema: jsyaml.CORE_SCHEMA }` (see importPageText's use
+     of jsyaml.load), which has no `timestamp` type and leaves every date
+     value a plain string regardless of format.
+   - jsyaml.dump() single-quotes a bare date string (`created: '2026-05-18'`)
+     but — verified — leaves mdcms's own `YYYY-MM-DD HH:MM` format unquoted.
+     Rather than depend on that inconsistency, the emitted block is built
+     line-by-line (see buildFrontmatterBlock/fmFieldLines) for
+     date/date-time/number/boolean fields — only free-text fields and
+     "Additional keys" extras go through jsyaml.dump().
+  A time is optional on a date-time field; leaving it blank collapses the
+  emitted value to a plain date (see fmFieldLines) — there is no separate
+  "clear time" control needed for that reason.
 
   Item row lifecycle: rows (tab/accordion items, callout reusable entries) are
   mounted once and patched in place:
@@ -163,6 +186,12 @@
 .mce-preview-body .kb-note { margin: 0; }
 .mce-preview-body .kb-note b { display: block; margin-bottom: 4px; }
 
+/* Frontmatter meta strip above the Page preview's rendered body. */
+.mce-fm-meta { margin-bottom: 10px; }
+.mce-fm-meta h1 { margin: 0 0 4px; }
+.mce-fm-meta-line { margin: 0 0 8px; font-size: var(--fs-small); color: var(--text-muted); }
+.mce-fm-draft-chip { margin-bottom: 8px; --chip-bg: var(--warning-soft); --chip-border: var(--warning-border); --chip-text: var(--warning); }
+
 /* Generated code block */
 .mce-code {
   background: var(--surface-3); border: 1px solid var(--border); border-radius: var(--radius-sm);
@@ -175,8 +204,26 @@
 
 .mce-entries-title { margin: 4px 0 10px; }
 
+/* Front matter card: field grid + date-time row + Additional-keys list. */
+.mce-fm-card.is-collapsed .mce-fm-hint,
+.mce-fm-card.is-collapsed .mce-fm-body { display: none; }
+.mce-fm-hint { font-size: var(--fs-small); color: var(--text-muted); margin: -2px 0 14px; line-height: 1.6; }
+.mce-fm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; }
+.mce-fm-grid .kb-field.full-width { grid-column: 1 / -1; }
+.mce-fm-datetime { display: flex; align-items: center; gap: 8px; }
+.mce-fm-datetime input[type="date"] { flex: 1; min-width: 0; }
+.mce-fm-datetime input[type="time"] { flex: 0 0 auto; width: 110px; }
+.mce-fm-now-btn { flex-shrink: 0; padding: 0 10px; }
+.mce-fm-time-note { font-size: var(--fs-label); color: var(--text-muted); margin-top: 3px; }
+.mce-fm-extras { margin-top: 18px; }
+.mce-fm-extras-title { margin: 0 0 10px; }
+.mce-fm-extra-row .mce-item__row { grid-template-columns: 1fr 1fr; align-items: end; }
+.mce-fm-extra-row .mce-item__head { margin-bottom: 10px; }
+
 @media (max-width: 600px) {
   .mce-item__row { grid-template-columns: 1fr; }
+  .mce-fm-grid { grid-template-columns: 1fr; }
+  .mce-fm-extra-row .mce-item__row { grid-template-columns: 1fr; }
 }
 
 /* Version footer block (see CLAUDE.md → Footer). kb-footer itself has no
@@ -236,6 +283,63 @@ function normaliseConfig() {
   CFG['default-code'] = defaultCode;
   CFG.languages = CFG.languages || languages;
   CFG['ui-strings'] = table;
+}
+
+// ── Front matter config ─────────────────────────────────────────────────────
+// FM_FIELDS is built once at boot from config.yml's `frontmatter:` block (see
+// its header comment there for the field shape). A missing/empty block simply
+// means FM_FIELDS stays [] and the Front matter card doesn't render — the
+// Page tab behaves exactly as it did before this feature.
+const FM_TYPES = ['text', 'number', 'boolean', 'dropdown', 'date', 'date-time'];
+let FM_FIELDS = [];
+
+// Accepts a YAML list OR a comma-separated string (like `keywords` itself),
+// trimmed and with blanks dropped — so config authors can write either.
+function normaliseDropdownValues(raw) {
+  if (Array.isArray(raw)) return raw.map(v => String(v).trim()).filter(Boolean);
+  if (typeof raw === 'string') return raw.split(',').map(v => v.trim()).filter(Boolean);
+  return [];
+}
+
+function normaliseFrontmatterConfig() {
+  const raw = CFG && CFG.frontmatter && Array.isArray(CFG.frontmatter.fields) ? CFG.frontmatter.fields : [];
+  const seen = new Set();
+  const fields = [];
+  raw.forEach(f => {
+    if (!f || typeof f.key !== 'string' || !f.key.trim()) return; // no key -> unusable, skip
+    const key = f.key.trim();
+    let type = FM_TYPES.includes(f.type) ? f.type : 'text';
+    let dropdownValues = type === 'dropdown' ? normaliseDropdownValues(f['dropdown-values']) : [];
+    if (type === 'dropdown' && !dropdownValues.length) type = 'text'; // no usable options -> degrade
+    const showNow = (type === 'date' || type === 'date-time') && ['date', 'date-time'].includes(f['show-now-button'])
+      ? f['show-now-button'] : 'none';
+    const field = {
+      key, type,
+      keydescription: typeof f.keydescription === 'string' ? f.keydescription : key,
+      required: kbTruthy(f.required),
+      fullWidth: kbTruthy(f['full-width']),
+      placeholder: typeof f.placeholder === 'string' ? f.placeholder : '',
+      dropdownValues,
+      showNow,
+      default: f.default,
+    };
+    if (seen.has(key)) { // duplicate key in config -> last one wins, drop the earlier
+      const idx = fields.findIndex(x => x.key === key);
+      if (idx !== -1) fields.splice(idx, 1);
+    }
+    seen.add(key);
+    fields.push(field);
+  });
+  FM_FIELDS = fields;
+}
+
+// Resolution order: a localised ui.fm-<key> string, then config.yml's
+// keydescription, then the raw key. lookupString() returns the key itself on
+// a miss, which is the sentinel this relies on.
+function fmLabel(def) {
+  const k = 'fm-' + def.key;
+  const s = S(k);
+  return s !== k ? s : (def.keydescription || def.key);
 }
 
 function applyLang(lc) {
@@ -388,7 +492,7 @@ function makeBlankCalloutEntry() {
 
 // ── State + persistence ──────────────────────────────────────────────────────
 let state = {
-  page: { content: '' },
+  page: { content: '', frontmatter: { values: {}, extras: [], collapsed: false } },
   variant: {},
   items: {},
   callout: {
@@ -405,7 +509,7 @@ let state = {
 // Editor instance) live in rowRegistry, keyed by row id. `page` and
 // `calloutInline` hold exactly one entry each (key 'page' / 'inline') so they
 // share the same destroy-all/theme-sync plumbing as the real per-row maps.
-const cardRefs = { tab: {}, accordion: {}, page: {}, callout: {}, calloutEntries: {} };
+const cardRefs = { tab: {}, accordion: {}, page: {}, pageFm: {}, callout: {}, calloutEntries: {} };
 const rowRegistry = { tab: new Map(), accordion: new Map(), page: new Map(), calloutInline: new Map(), calloutEntry: new Map() };
 
 const DRAFT_KEY = 'mdcmseditor-draft';
@@ -441,7 +545,10 @@ function loadDraft() {
     }
   });
 
-  const page = { content: (saved && saved.page && typeof saved.page.content === 'string') ? sanitizeMarkdown(saved.page.content) : '' };
+  const page = {
+    content: (saved && saved.page && typeof saved.page.content === 'string') ? sanitizeMarkdown(saved.page.content) : '',
+    frontmatter: loadFrontmatterDraft(saved && saved.page && saved.page.frontmatter),
+  };
 
   const callout = {
     mode: 'inline',
@@ -823,9 +930,30 @@ function replaceItems(kind, variant, items) {
 }
 
 function importPageText(text) {
-  state.page.content = text;
+  const { frontmatter: fmBlock, body } = splitFrontmatter(text);
+  let frontmatter, content;
+  if (fmBlock === null) {
+    frontmatter = makeBlankFrontmatter();
+    content = text;
+  } else {
+    try {
+      // CORE_SCHEMA (not the default schema) — see the file-header note on
+      // why: DEFAULT_SCHEMA would resolve an unquoted date to a JS Date
+      // parsed as UTC, silently shifting it for anyone off UTC.
+      const parsed = jsyaml.load(fmBlock, { schema: jsyaml.CORE_SCHEMA });
+      frontmatter = applyImportedFrontmatter(parsed);
+      content = body;
+    } catch (e) {
+      kbAlert({ title: S('import-error-title'), message: S('import-frontmatter-error', { error: e.message }) });
+      frontmatter = makeBlankFrontmatter();
+      content = text; // keep the whole file as body text rather than lose it
+    }
+  }
+  state.page.frontmatter = frontmatter;
+  state.page.content = content;
   const entry = rowRegistry.page.get('page');
-  if (entry) entry.editor.setMarkdown(text);
+  if (entry) entry.editor.setMarkdown(content);
+  refreshFrontmatterBody();
   refreshDerived('page');
 }
 
@@ -926,8 +1054,71 @@ function validateItems(kind) {
 function validatePage() {
   const issues = [];
   const content = state.page.content || '';
-  if (!content.trim()) { issues.push({ level: 'error', message: S('validate-page-empty') }); return issues; }
+  if (!content.trim() && !frontmatterHasContent()) { issues.push({ level: 'error', message: S('validate-page-empty') }); return issues; }
   if (((content.match(/```/g) || []).length) % 2 !== 0) issues.push({ level: 'warning', message: S('validate-unbalanced-fences') });
+  issues.push(...validateFrontmatter());
+  return issues;
+}
+
+function validateFrontmatter() {
+  const issues = [];
+  const fm = state.page.frontmatter;
+  const dateRe = /^\d{4}-\d{2}-\d{2}$/, timeRe = /^\d{2}:\d{2}$/;
+
+  FM_FIELDS.forEach(def => {
+    const label = fmLabel(def);
+    const v = fm.values[def.key];
+    if (def.type === 'boolean') return; // always has a value, never "empty"
+    if (def.type === 'date' || def.type === 'date-time') {
+      const d = (v && v.date) || '';
+      if (def.required && !d) { issues.push({ level: 'error', message: S('validate-fm-required', { label }) }); return; }
+      if (d && !dateRe.test(d)) issues.push({ level: 'error', message: S('validate-fm-date', { label }) });
+      if (def.type === 'date-time') {
+        const t = (v && v.time) || '';
+        if (t && !timeRe.test(t)) issues.push({ level: 'error', message: S('validate-fm-date', { label }) });
+      }
+      return;
+    }
+    const s = String(v == null ? '' : v).trim();
+    if (def.required && !s) { issues.push({ level: 'error', message: S('validate-fm-required', { label }) }); return; }
+    if (!s) return;
+    if (def.type === 'number' && !Number.isFinite(Number(s))) issues.push({ level: 'error', message: S('validate-fm-number', { label }) });
+    if (def.type === 'dropdown' && def.dropdownValues.length && !def.dropdownValues.includes(s)) {
+      issues.push({ level: 'warning', message: S('validate-fm-dropdown', { label, value: s }) });
+    }
+  });
+
+  (fm.droppedTimes || []).forEach(key => {
+    const def = FM_FIELDS.find(f => f.key === key);
+    if (def) issues.push({ level: 'warning', message: S('validate-fm-date-time-dropped', { label: fmLabel(def) }) });
+  });
+
+  // Key-collision check covers defined fields vs extras AND extras vs each
+  // other in one pass — each colliding key is reported once.
+  const counts = new Map();
+  FM_FIELDS.forEach(f => counts.set(f.key.toLowerCase(), (counts.get(f.key.toLowerCase()) || 0) + 1));
+  fm.extras.forEach(ex => {
+    const key = (ex.key || '').trim();
+    if (key) counts.set(key.toLowerCase(), (counts.get(key.toLowerCase()) || 0) + 1);
+  });
+  const reportedDup = new Set();
+  fm.extras.forEach(ex => {
+    const key = (ex.key || '').trim();
+    if (!key) return;
+    if (!/^[a-zA-Z][\w-]*$/.test(key)) issues.push({ level: 'warning', message: S('validate-fm-key-format', { key }) });
+    const lower = key.toLowerCase();
+    if (counts.get(lower) > 1 && !reportedDup.has(lower)) {
+      reportedDup.add(lower);
+      issues.push({ level: 'error', message: S('validate-fm-key-duplicate', { key }) });
+    }
+  });
+
+  try {
+    const block = buildFrontmatterBlock();
+    if (block) jsyaml.load(block.slice(4, block.lastIndexOf('\n---')), { schema: jsyaml.CORE_SCHEMA });
+  } catch (e) {
+    issues.push({ level: 'error', message: S('validate-yaml-error', { error: e.message }) });
+  }
   return issues;
 }
 
@@ -1310,10 +1501,411 @@ function buildItemsOutputBody(kind) {
   return container;
 }
 
+// ── Front matter ─────────────────────────────────────────────────────────────
+// See the file-header note for the two js-yaml hazards this section works
+// around (CORE_SCHEMA on import, hand-built lines on export).
+
+// Truly empty — no config `default:` applied. This is what "no frontmatter
+// block found on import" resets to, so re-exporting an untouched body-only
+// import doesn't fabricate a frontmatter block the file never had.
+function fmBlankValue(def) {
+  if (def.type === 'boolean') return false;
+  if (def.type === 'date') return { date: '' };
+  if (def.type === 'date-time') return { date: '', time: '' };
+  return '';
+}
+
+// Seeded from config `default:` where set. Only for a genuinely new page (no
+// draft has ever been saved) — see loadFrontmatterDraft — so a first-time
+// user sees e.g. `sort: 100` pre-filled without an import ever gaining it.
+function fmDefaultValue(def) {
+  if (def.type === 'boolean') return typeof def.default === 'boolean' ? def.default : false;
+  if (def.type === 'date' || def.type === 'date-time') return fmBlankValue(def); // no sane seed for a date
+  return def.default != null ? String(def.default) : '';
+}
+
+function makeBlankFrontmatter() {
+  const values = {};
+  FM_FIELDS.forEach(def => { values[def.key] = fmBlankValue(def); });
+  return { values, extras: [], collapsed: false, droppedTimes: [] };
+}
+
+function makeDefaultFrontmatter() {
+  const values = {};
+  FM_FIELDS.forEach(def => { values[def.key] = fmDefaultValue(def); });
+  return { values, extras: [], collapsed: false, droppedTimes: [] };
+}
+
+function fmValueShapeOk(def, v) {
+  if (v == null) return false;
+  if (def.type === 'boolean') return typeof v === 'boolean';
+  if (def.type === 'date') return typeof v === 'object' && typeof v.date === 'string';
+  if (def.type === 'date-time') return typeof v === 'object' && typeof v.date === 'string' && typeof v.time === 'string';
+  return typeof v === 'string';
+}
+
+// A value whose key config.yml no longer defines is moved into `extras`
+// rather than dropped — editing config.yml should never silently eat a draft.
+// No saved draft at all (first-ever load) is the one case that starts from
+// config `default:` values instead of blank — every other path (an existing
+// draft, or an import with no frontmatter block) starts blank.
+function loadFrontmatterDraft(saved) {
+  const fm = saved ? makeBlankFrontmatter() : makeDefaultFrontmatter();
+  const savedValues = (saved && typeof saved.values === 'object' && saved.values) || {};
+  const knownKeys = new Set(FM_FIELDS.map(f => f.key));
+  FM_FIELDS.forEach(def => {
+    const v = savedValues[def.key];
+    if (fmValueShapeOk(def, v)) fm.values[def.key] = v;
+  });
+  Object.keys(savedValues).forEach(key => {
+    if (knownKeys.has(key)) return;
+    const v = savedValues[key];
+    fm.extras.push({ id: uid(), key, value: typeof v === 'string' ? v : fmCoerceScalar(v) });
+  });
+  if (saved && Array.isArray(saved.extras)) {
+    saved.extras.forEach(ex => {
+      if (!ex || typeof ex.key !== 'string' || !ex.key.trim() || knownKeys.has(ex.key.trim())) return;
+      fm.extras.push({
+        id: (ex && ex.id) || uid(),
+        key: ex.key,
+        value: typeof ex.value === 'string' ? ex.value : '',
+        raw: ex.raw,
+      });
+    });
+  }
+  fm.collapsed = !!(saved && saved.collapsed);
+  return fm;
+}
+
+// Non-scalar imported values (a nested map/list under a key) can't populate a
+// plain text input — stringified via js-yaml so the row stays a faithful,
+// if read-only-looking, passthrough rather than "[object Object]".
+function fmCoerceScalar(v) {
+  if (v == null) return '';
+  if (typeof v === 'object') return jsyaml.dump(v, { lineWidth: -1, flowLevel: 1 }).replace(/\n+$/, '');
+  return String(v);
+}
+
+// Tolerant of mdcms's two documented shapes (YYYY-MM-DD / YYYY-MM-DD HH:MM)
+// and the HTML datetime-local separator, in case a value was hand-edited.
+function parseFmDateTimeString(v) {
+  const str = String(v == null ? '' : v).trim();
+  const m = str.match(/^(\d{4}-\d{2}-\d{2})(?:[ T](\d{2}:\d{2}))?$/);
+  return m ? { date: m[1], time: m[2] || '' } : null;
+}
+
+// Splits a leading `---\n...\n---` block from `text`. Anchored at offset 0
+// ONLY, so a `---` thematic break inside the body is never mistaken for
+// frontmatter. Returns { frontmatter: null, body: text } when there is none.
+// The single blank separator line conventionally left after the closing
+// fence (if present) is stripped from body — buildPageMarkdown() always adds
+// exactly one back on export, so an unmodified import round-trips byte-for-
+// byte instead of accumulating an extra blank line on re-export.
+function splitFrontmatter(text) {
+  const m = text.match(/^---[ \t]*\n([\s\S]*?)\n---[ \t]*(?:\n|$)/);
+  if (!m) return { frontmatter: null, body: text };
+  let body = text.slice(m[0].length);
+  if (body.startsWith('\n')) body = body.slice(1);
+  return { frontmatter: m[1], body };
+}
+
+// Maps a parsed frontmatter object onto FM_FIELDS + extras. `parsed` has
+// already gone through jsyaml.load(..., { schema: jsyaml.CORE_SCHEMA }).
+function applyImportedFrontmatter(parsed) {
+  const fm = makeBlankFrontmatter();
+  const obj = (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : {};
+  const usedKeys = new Set();
+  FM_FIELDS.forEach(def => {
+    if (!(def.key in obj)) return;
+    usedKeys.add(def.key);
+    const raw = obj[def.key];
+    if (def.type === 'boolean') {
+      fm.values[def.key] = raw === true || /^(true|yes)$/i.test(String(raw).trim());
+    } else if (def.type === 'date') {
+      const parsed2 = parseFmDateTimeString(raw);
+      fm.values[def.key] = { date: parsed2 ? parsed2.date : '' };
+      if (parsed2 && parsed2.time) fm.droppedTimes.push(def.key); // a date-only field can't keep an imported time
+    } else if (def.type === 'date-time') {
+      const parsed2 = parseFmDateTimeString(raw);
+      fm.values[def.key] = parsed2 ? { date: parsed2.date, time: parsed2.time } : { date: '', time: '' };
+    } else {
+      fm.values[def.key] = fmCoerceScalar(raw);
+    }
+  });
+  Object.keys(obj).forEach(key => {
+    if (usedKeys.has(key)) return;
+    const raw = obj[key];
+    fm.extras.push((raw !== null && typeof raw === 'object')
+      ? { id: uid(), key, value: '', raw }
+      : { id: uid(), key, value: fmCoerceScalar(raw) });
+  });
+  return fm;
+}
+
+// One key: value line, or [] when the field is empty (so it's omitted from
+// the exported block entirely). Date/number/boolean are hand-built rather
+// than run through jsyaml.dump() — see the file-header note on why.
+function fmFieldLines(def, value) {
+  if (def.type === 'boolean') return value === true ? [def.key + ': true'] : [];
+  if (def.type === 'number') {
+    const s = String(value == null ? '' : value).trim();
+    if (!s) return [];
+    const n = Number(s);
+    return [def.key + ': ' + (Number.isFinite(n) ? n : fmDumpLine(def.key, s).split(': ').slice(1).join(': '))];
+  }
+  if (def.type === 'date') {
+    const d = (value && value.date) || '';
+    return d ? [def.key + ': ' + d] : [];
+  }
+  if (def.type === 'date-time') {
+    const d = (value && value.date) || '';
+    if (!d) return [];
+    const t = (value && value.time) || '';
+    return [def.key + ': ' + d + (t ? ' ' + t : '')]; // no time -> plain date, per mdcms's own format
+  }
+  const s = String(value == null ? '' : value).trim();
+  return s ? [fmDumpLine(def.key, s)] : [];
+}
+
+// Free-text fields and "Additional keys" extras go through js-yaml so it
+// owns quoting/escaping — safe here since these are never timestamp-shaped.
+function fmDumpLine(key, value) {
+  return jsyaml.dump({ [key]: value }, { lineWidth: -1 }).replace(/\n+$/, '');
+}
+
+function buildFrontmatterBlock() {
+  const fm = state.page.frontmatter;
+  const lines = [];
+  FM_FIELDS.forEach(def => { lines.push(...fmFieldLines(def, fm.values[def.key])); });
+  (fm.extras || []).forEach(ex => {
+    const key = (ex.key || '').trim();
+    if (!key) return;
+    if (ex.raw !== undefined) { lines.push(fmDumpLine(key, ex.raw)); return; }
+    const s = String(ex.value == null ? '' : ex.value).trim();
+    if (s) lines.push(fmDumpLine(key, s));
+  });
+  return lines.length ? ('---\n' + lines.join('\n') + '\n---\n') : '';
+}
+
+// True if any field or extra has a value worth writing out — shared by the
+// "is the page empty" checks in the Output card and Validate.
+function frontmatterHasContent() {
+  const fm = state.page.frontmatter;
+  return FM_FIELDS.some(def => {
+    const v = fm.values[def.key];
+    if (def.type === 'boolean') return v === true;
+    if (def.type === 'date' || def.type === 'date-time') return !!(v && v.date);
+    return !!(v && String(v).trim());
+  }) || fm.extras.some(ex => (ex.key || '').trim() && (ex.raw !== undefined || (ex.value || '').trim()));
+}
+
+// The full exported .md: frontmatter block (if any) + a blank line + body.
+// With no frontmatter set at all, this is byte-identical to the body alone.
+function buildPageMarkdown() {
+  const fmBlock = buildFrontmatterBlock();
+  const body = state.page.content || '';
+  return fmBlock ? (fmBlock + '\n' + body) : body;
+}
+
+function fmPad2(n) { return String(n).padStart(2, '0'); }
+function fmNowDate() { const d = new Date(); return d.getFullYear() + '-' + fmPad2(d.getMonth() + 1) + '-' + fmPad2(d.getDate()); }
+function fmNowTime() { const d = new Date(); return fmPad2(d.getHours()) + ':' + fmPad2(d.getMinutes()); }
+
+// One field's input, wired to mutate state and refresh Preview/Output only —
+// never touches a Toast UI Editor instance (see the file-header lifecycle note).
+function buildFrontmatterFieldInput(def) {
+  const fm = state.page.frontmatter;
+  const label = fmLabel(def);
+
+  if (def.type === 'boolean') {
+    const wrap = el('div', { className: 'kb-field' + (def.fullWidth ? ' full-width' : '') });
+    const toggle = el('label', { className: 'mce-toggle' });
+    const input = el('input', { type: 'checkbox' });
+    input.checked = fm.values[def.key] === true;
+    input.addEventListener('change', () => { fm.values[def.key] = input.checked; refreshDerived('page'); });
+    toggle.append(input, document.createTextNode(label));
+    wrap.appendChild(toggle);
+    return wrap;
+  }
+
+  if (def.type === 'dropdown') {
+    const select = el('select', { className: 'kb-select' });
+    if (!def.required) select.appendChild(el('option', { value: '' }, S('fm-dropdown-none')));
+    const values = def.dropdownValues.slice();
+    if (fm.values[def.key] && !values.includes(fm.values[def.key])) values.push(fm.values[def.key]); // preserve an imported value outside the list
+    values.forEach(v => {
+      const opt = el('option', { value: v }, v);
+      if (fm.values[def.key] === v) opt.selected = true;
+      select.appendChild(opt);
+    });
+    select.addEventListener('change', () => { fm.values[def.key] = select.value; refreshDerived('page'); });
+    return field(label, select, def.fullWidth ? 'full-width' : '');
+  }
+
+  if (def.type === 'date' || def.type === 'date-time') {
+    const wrap = el('div', { className: 'mce-fm-datetime' });
+    const v = fm.values[def.key];
+    const dateInput = el('input', { className: 'kb-input', type: 'date' });
+    dateInput.value = v.date || '';
+    dateInput.addEventListener('change', () => { v.date = dateInput.value; refreshDerived('page'); });
+    wrap.appendChild(dateInput);
+    let timeInput = null;
+    if (def.type === 'date-time') {
+      timeInput = el('input', { className: 'kb-input', type: 'time' });
+      timeInput.value = v.time || '';
+      timeInput.addEventListener('change', () => { v.time = timeInput.value; refreshDerived('page'); });
+      wrap.appendChild(timeInput);
+    }
+    if (def.showNow !== 'none') {
+      const nowBtn = el('button', {
+        type: 'button', className: 'kb-btn kb-btn--ghost mce-fm-now-btn',
+        'aria-label': S(def.showNow === 'date-time' ? 'fm-now-date-time' : 'fm-now-date'),
+        onClick: () => {
+          v.date = fmNowDate();
+          dateInput.value = v.date;
+          if (def.showNow === 'date-time' && timeInput) { v.time = fmNowTime(); timeInput.value = v.time; }
+          refreshDerived('page');
+        },
+      }, S('fm-now'));
+      wrap.appendChild(nowBtn);
+    }
+    const f = field(label, wrap, def.fullWidth ? 'full-width' : '');
+    if (def.type === 'date-time') f.appendChild(el('div', { className: 'mce-fm-time-note' }, S('fm-time-optional')));
+    return f;
+  }
+
+  const input = el('input', { className: 'kb-input' + (def.type === 'number' ? ' num' : ''), type: def.type === 'number' ? 'number' : 'text', placeholder: def.placeholder });
+  input.value = fm.values[def.key] || '';
+  input.addEventListener('input', () => { fm.values[def.key] = def.type === 'number' ? input.value : sanitizeMarkdown(input.value); refreshDerived('page'); });
+  return field(label, input, def.fullWidth ? 'full-width' : '');
+}
+
+function buildFrontmatterFieldsGrid() {
+  const grid = el('div', { className: 'mce-fm-grid' });
+  FM_FIELDS.forEach(def => grid.appendChild(buildFrontmatterFieldInput(def)));
+  return grid;
+}
+
+function mountFmExtraRow(extra) {
+  const row = el('div', { className: 'mce-item mce-fm-extra-row' });
+  const head = el('div', { className: 'mce-item__head' });
+  const move = el('div', { className: 'mce-item__move' });
+  const upBtn = el('button', { type: 'button', className: 'kb-iconbtn', 'aria-label': S('move-up'), onClick: () => moveFmExtra(extra.id, -1) }, '↑');
+  const downBtn = el('button', { type: 'button', className: 'kb-iconbtn', 'aria-label': S('move-down'), onClick: () => moveFmExtra(extra.id, 1) }, '↓');
+  const rmBtn = el('button', { type: 'button', className: 'kb-circbtn kb-circbtn--rm', 'aria-label': S('fm-remove-key'), onClick: () => removeFmExtra(extra.id) }, '−');
+  move.append(upBtn, downBtn, rmBtn);
+  head.appendChild(move);
+  row.appendChild(head);
+
+  const topRow = el('div', { className: 'mce-item__row' });
+  const keyInput = el('input', { className: 'kb-input', type: 'text', placeholder: S('ph-fm-key') });
+  keyInput.value = extra.key;
+  keyInput.addEventListener('input', () => { extra.key = keyInput.value; refreshDerived('page'); });
+  topRow.appendChild(field(S('fm-key-name'), keyInput));
+
+  const valueInput = el('input', { className: 'kb-input', type: 'text' });
+  valueInput.value = extra.raw !== undefined ? fmCoerceScalar(extra.raw) : extra.value;
+  valueInput.disabled = extra.raw !== undefined;
+  valueInput.addEventListener('input', () => { extra.value = sanitizeMarkdown(valueInput.value); refreshDerived('page'); });
+  topRow.appendChild(field(S('fm-key-value'), valueInput, 'grow'));
+  row.appendChild(topRow);
+
+  return { root: row, upBtn, downBtn };
+}
+
+function buildFrontmatterExtras() {
+  const wrap = el('div', { className: 'mce-fm-extras' });
+  const fm = state.page.frontmatter;
+  wrap.appendChild(el('h3', { className: 'kb-label mce-fm-extras-title' }, S('fm-extras-title')));
+
+  const emptyNote = noteBox('info', S('fm-extras-empty'));
+  emptyNote.hidden = fm.extras.length > 0;
+  wrap.appendChild(emptyNote);
+
+  const entriesHost = el('div', { className: 'mce-items' });
+  fm.extras.forEach(ex => entriesHost.appendChild(mountFmExtraRow(ex).root));
+  wrap.appendChild(entriesHost);
+
+  const addBtn = el('button', { type: 'button', className: 'mce-add-btn', onClick: () => addFmExtra() });
+  addBtn.append(el('span', { className: 'kb-circbtn', 'aria-hidden': 'true' }, '+'), el('span', null, S('fm-add-key')));
+  wrap.appendChild(addBtn);
+  wrap.appendChild(el('p', { className: 'mce-hint' }, S('fm-extras-hint')));
+
+  cardRefs.pageFm.extrasHost = entriesHost;
+  cardRefs.pageFm.extrasEmptyNote = emptyNote;
+  return wrap;
+}
+
+function addFmExtra() {
+  state.page.frontmatter.extras.push({ id: uid(), key: '', value: '' });
+  refreshFrontmatterBody();
+  refreshDerived('page');
+}
+
+function removeFmExtra(id) {
+  state.page.frontmatter.extras = state.page.frontmatter.extras.filter(e => e.id !== id);
+  refreshFrontmatterBody();
+  refreshDerived('page');
+}
+
+function moveFmExtra(id, dir) {
+  const arr = state.page.frontmatter.extras;
+  const idx = arr.findIndex(e => e.id === id);
+  const j = idx + dir;
+  if (idx < 0 || j < 0 || j >= arr.length) return;
+  [arr[idx], arr[j]] = [arr[j], arr[idx]];
+  refreshFrontmatterBody();
+  refreshDerived('page');
+}
+
+// Full rebuild of just this card's body — used at mount and after
+// Import/Load-from-clipboard (a structural change, per the file-header
+// lifecycle note). No Toast UI Editor lives in this card, so there is
+// nothing to destroy first.
+function refreshFrontmatterBody() {
+  const host = cardRefs.pageFm.body;
+  if (!host) return; // card not built yet (first render will call this itself)
+  host.innerHTML = '';
+  host.appendChild(buildFrontmatterFieldsGrid());
+  host.appendChild(buildFrontmatterExtras());
+}
+
+function toggleFrontmatterCollapsed() {
+  const fm = state.page.frontmatter;
+  fm.collapsed = !fm.collapsed;
+  cardRefs.pageFm.card.classList.toggle('is-collapsed', fm.collapsed);
+  cardRefs.pageFm.foldBtn.setAttribute('aria-expanded', String(!fm.collapsed));
+  persistDraft();
+}
+
+function buildFrontmatterCard() {
+  if (!FM_FIELDS.length) return null; // no frontmatter: configured -> card doesn't render at all
+  const fm = state.page.frontmatter;
+  const card = el('div', { className: 'kb-card mce-fm-card' + (fm.collapsed ? ' is-collapsed' : '') });
+
+  const titleRow = cardTitle(S('frontmatter-title'), 'article');
+  const foldBtn = el('button', { type: 'button', className: 'mce-fold-btn', style: { marginLeft: 'auto' },
+    'aria-label': S('fm-toggle'), 'aria-expanded': String(!fm.collapsed), onClick: toggleFrontmatterCollapsed });
+  foldBtn.innerHTML = '<svg viewBox="0 0 24 24" class="mce-fold-chevron" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>';
+  titleRow.appendChild(foldBtn);
+  card.appendChild(titleRow);
+
+  card.appendChild(el('p', { className: 'mce-fm-hint' }, S('frontmatter-hint')));
+
+  const body = el('div', { className: 'mce-fm-body' });
+  card.appendChild(body);
+
+  cardRefs.pageFm = { card, foldBtn, body };
+  refreshFrontmatterBody();
+  return card;
+}
+
 // ── Page panel ─────────────────────────────────────────────────────────────
 function buildPagePanel() {
   const wrap = el('div', { className: 'mce-panel' });
   wrap.appendChild(buildImportRow('page'));
+  const fmCard = buildFrontmatterCard();
+  if (fmCard) wrap.appendChild(fmCard);
   wrap.appendChild(buildPageContentCard());
   wrap.appendChild(buildPreviewCard('page'));
   wrap.appendChild(buildOutputCard('page'));
@@ -1333,17 +1925,48 @@ function buildPageContentCard() {
   return card;
 }
 
+// Meta strip (title/author/created/modified/draft) above the rendered body,
+// mirroring what mdcms itself shows on a real page. Hidden entirely when
+// those fields are blank, so a body-only page's preview is unchanged.
+function buildFrontmatterMeta() {
+  const fm = state.page.frontmatter;
+  const get = (key) => { const v = fm.values[key]; return typeof v === 'string' ? v.trim() : ''; };
+  const title = get('title');
+  const author = get('author');
+  const created = FM_FIELDS.some(f => f.key === 'created') ? (fm.values.created.date || '') : '';
+  const modified = FM_FIELDS.some(f => f.key === 'modified') ? (fm.values.modified.date || '') : '';
+  const isDraft = FM_FIELDS.some(f => f.key === 'draft') && fm.values.draft === true;
+  if (!title && !author && !created && !modified && !isDraft) return null;
+
+  const wrap = el('div', { className: 'mce-fm-meta' });
+  if (title) wrap.appendChild(el('h1', null, title));
+  const metaParts = [];
+  if (author) metaParts.push(author);
+  if (created) metaParts.push(created);
+  if (modified) metaParts.push(modified);
+  if (metaParts.length) wrap.appendChild(el('p', { className: 'mce-fm-meta-line' }, metaParts.join(' · ')));
+  if (isDraft) wrap.appendChild(el('span', { className: 'kb-chip mce-fm-draft-chip' }, S('fm-draft-chip')));
+  return wrap;
+}
+
 function buildPagePreviewBody() {
   const content = state.page.content || '';
-  if (!content.trim()) return el('p', { className: 'mce-hint' }, S('empty-page'));
-  return mdNode(content);
+  const meta = buildFrontmatterMeta();
+  if (!content.trim() && !meta) return el('p', { className: 'mce-hint' }, S('empty-page'));
+  const wrap = el('div');
+  if (meta) wrap.appendChild(meta);
+  if (content.trim()) wrap.appendChild(mdNode(content));
+  return wrap;
 }
 
 function buildPageOutputBody() {
   const content = state.page.content || '';
+  const fm = state.page.frontmatter;
   const container = el('div');
-  if (!content.trim()) { container.appendChild(noteBox('info', S('output-empty-page'))); return container; }
-  container.appendChild(buildCodeBlockWithActions(content, 'page.md', 'output-hint-page'));
+  if (!content.trim() && !frontmatterHasContent()) { container.appendChild(noteBox('info', S('output-empty-page'))); return container; }
+  const title = (typeof fm.values.title === 'string' && fm.values.title.trim()) || '';
+  const filename = kbSafeFilename(title) ? kbSafeFilename(title) + '.md' : 'page.md';
+  container.appendChild(buildCodeBlockWithActions(buildPageMarkdown(), filename, 'output-hint-page'));
   return container;
 }
 
@@ -1623,6 +2246,7 @@ try {
   CFG = cfg;                       // fetch + parse config.yml (shared helper)
   assertValidConfig(CFG);         // guard: catch HTML-instead-of-YAML (see above)
   normaliseConfig();
+  normaliseFrontmatterConfig();   // build FM_FIELDS from config.yml's frontmatter: block
   applyAccent(CFG);               // apply config accent-colour to --accent
   initFontScale();                // restore persisted text size
   lang = localStorage.getItem('mdcmseditor-lang') || CFG['default-code'] || 'en';

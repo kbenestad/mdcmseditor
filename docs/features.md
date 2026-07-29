@@ -5,9 +5,15 @@ actually shipped on `main`.
 
 - Four editing panels, switched via tabs: **Page**, **Tabs**, **Accordion**,
   **Callout**. Each has its own Preview and Generated-code cards.
-- **Page**: a single Markdown body for a whole page (front matter and
-  combining blocks into the body are not yet supported — see
-  `docs/roadmap.md`).
+- **Page**: a single Markdown body for a whole page, plus a config-driven
+  **Front matter** card on top — extracted from an imported file, edited with
+  the right widget per field (text, number, boolean, dropdown, date,
+  date-time with an optional time and a one-click "Now" button), and
+  prepended to the exported `.md` as a YAML block. Field keys/types/labels are
+  defined in `config.yml`'s `frontmatter:` block; a key imported from a file
+  but not listed there still round-trips via an "Additional keys" list, which
+  also lets you add an ad hoc key by hand. (Combining blocks into the body is
+  not yet supported — see `docs/roadmap.md`.)
 - **Tabs** / **Accordion**: a variant toggle (Underline / Filled), a
   repeatable item editor (title, Markdown content, title-style, active/
   open-on-load), reordering, per-item fold/collapse plus a card-level

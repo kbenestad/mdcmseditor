@@ -15,6 +15,64 @@ tagline:                      # subtitle shown below the org name (falls back to
 # Branding — overrides the --accent token for this app
 accent-colour: "#2f6fed"
 
+# ── Front matter ───────────────────────────────────────────────────────────────
+# Fields shown in the Page tab's Front matter card, extracted on import and
+# prepended to the exported .md. Keys are mdcms's own frontmatter keys (see
+# kbenestad/mdcms's docs/reference-pages.md) and are written to the file
+# verbatim — they are NOT translated. Only `keydescription` (the fallback
+# label, shown when no `ui.fm-<key>` string is set for the active language) and
+# `placeholder` are UI text; `default` is the value a brand-new page starts
+# with. A key imported from a .md file that isn't listed here still round-trips
+# — it lands in the card's "Additional keys" list instead.
+#
+# type: text | number | boolean | dropdown | date | date-time
+#   dropdown-values: a YAML list, or a comma-separated string like keywords
+#   show-now-button: none (default) | date | date-time — adds a "Now" button
+#     next to a date/date-time field's input (used below on created/modified)
+#   full-width: yes — span both grid columns (long fields: description, keywords)
+#   required: yes — Validate errors when this field is empty
+frontmatter:
+  fields:
+    - key: title
+      keydescription: Title
+      type: text
+      required: yes
+      placeholder: "e.g. Quick Start"
+    - key: sort
+      keydescription: Sort order
+      type: number
+      default: 100
+    - key: section-id
+      keydescription: Section
+      type: text
+    - key: draft
+      keydescription: Draft
+      type: boolean
+    - key: author
+      keydescription: Author
+      type: text
+    - key: created
+      keydescription: Created
+      type: date-time
+      show-now-button: date-time
+    - key: modified
+      keydescription: Modified
+      type: date-time
+      show-now-button: date-time
+    - key: description
+      keydescription: Description
+      type: text
+      full-width: yes
+    - key: keywords
+      keydescription: Keywords
+      type: text
+      full-width: yes
+      placeholder: "install, setup, quickstart"
+    - key: language
+      keydescription: Language
+      type: dropdown
+      dropdown-values: [en, de]
+
 # ── Localisation ──────────────────────────────────────────────────────────────
 # Every user-facing string lives here, under each language's `ui:` block, and is
 # looked up via S('key'). Use {token} placeholders for interpolation.
@@ -111,6 +169,7 @@ localisation:
       import-empty-items: "The imported block has no items."
       import-callout-message-only: "Imported the message key and type. The title and text for each category live in your config.yml, not on the page — add them below."
       import-callout-unrecognized: "Couldn't recognise this as a callout block or a reusable-message YAML entry."
+      import-frontmatter-error: "Couldn't parse the front matter block: {error}. The file was imported as body text only."
 
       validate-title: "Validation"
       validate-all-good: "Looks good — no issues found."
@@ -128,9 +187,45 @@ localisation:
       validate-callout-entry-code: "Entry {n} has no category code."
       validate-callout-entry-empty: "Entry {n} has no title or text."
       validate-callout-duplicate-codes: "Two or more entries share the same category code."
+      validate-fm-required: "{label} is required."
+      validate-fm-number: "{label} must be a whole number."
+      validate-fm-date: "{label} isn't a valid date."
+      validate-fm-date-time-dropped: "{label} has a time set, but only accepts a date — the time will be dropped."
+      validate-fm-dropdown: "{label} is set to \"{value}\", which isn't one of the configured options."
+      validate-fm-key-format: "The key \"{key}\" should start with a letter and contain only letters, numbers, - or _."
+      validate-fm-key-duplicate: "Two or more front matter keys are named \"{key}\"."
 
       page-content-title: "Page content"
       ph-page-content: "Write the page's Markdown body here…"
+
+      frontmatter-title: "Front matter"
+      frontmatter-hint: "These fields are written as a YAML block at the top of the exported file — mdcms reads them for the page's title, sorting, dates, and search index."
+      fm-toggle: "Show or hide front matter fields"
+      fm-now: "Now"
+      fm-now-date: "Set to today's date"
+      fm-now-date-time: "Set to the current date and time"
+      fm-dropdown-none: "—"
+      fm-time-optional: "optional"
+      fm-extras-title: "Additional keys"
+      fm-extras-empty: "No additional keys — imported keys not listed in config.yml, or ones you add yourself, show up here."
+      fm-extras-hint: "Kept as plain text and written out exactly as entered."
+      fm-add-key: "Add key"
+      fm-remove-key: "Remove key"
+      fm-key-name: "Key"
+      fm-key-value: "Value"
+      ph-fm-key: "e.g. custom-key"
+
+      fm-title: "Title"
+      fm-sort: "Sort order"
+      fm-section-id: "Section"
+      fm-draft: "Draft"
+      fm-author: "Author"
+      fm-created: "Created"
+      fm-modified: "Modified"
+      fm-description: "Description"
+      fm-keywords: "Keywords"
+      fm-language: "Language"
+      fm-draft-chip: "Draft"
 
       callout-title: "Callout"
       callout-mode-label: "Mode"
@@ -243,6 +338,7 @@ localisation:
       import-empty-items: "Der importierte Block enthält keine Elemente."
       import-callout-message-only: "Nachrichtenschlüssel und Typ wurden importiert. Titel und Text je Kategorie stammen aus Ihrer config.yml, nicht von der Seite — bitte unten ergänzen."
       import-callout-unrecognized: "Dies konnte nicht als Callout-Block oder als wiederverwendbarer YAML-Eintrag erkannt werden."
+      import-frontmatter-error: "Der Frontmatter-Block konnte nicht gelesen werden: {error}. Die Datei wurde nur als Seiteninhalt importiert."
 
       validate-title: "Prüfung"
       validate-all-good: "Sieht gut aus — keine Probleme gefunden."
@@ -260,9 +356,45 @@ localisation:
       validate-callout-entry-code: "Eintrag {n} hat keinen Kategoriecode."
       validate-callout-entry-empty: "Eintrag {n} hat weder Titel noch Text."
       validate-callout-duplicate-codes: "Zwei oder mehr Einträge haben denselben Kategoriecode."
+      validate-fm-required: "{label} ist erforderlich."
+      validate-fm-number: "{label} muss eine ganze Zahl sein."
+      validate-fm-date: "{label} ist kein gültiges Datum."
+      validate-fm-date-time-dropped: "{label} hat eine Uhrzeit, akzeptiert aber nur ein Datum — die Uhrzeit wird verworfen."
+      validate-fm-dropdown: "{label} ist auf \"{value}\" gesetzt, was keine der konfigurierten Optionen ist."
+      validate-fm-key-format: "Der Schlüssel \"{key}\" sollte mit einem Buchstaben beginnen und nur Buchstaben, Zahlen, - oder _ enthalten."
+      validate-fm-key-duplicate: "Zwei oder mehr Frontmatter-Schlüssel heißen \"{key}\"."
 
       page-content-title: "Seiteninhalt"
       ph-page-content: "Schreiben Sie hier den Markdown-Inhalt der Seite…"
+
+      frontmatter-title: "Frontmatter"
+      frontmatter-hint: "Diese Felder werden als YAML-Block am Anfang der exportierten Datei geschrieben — mdcms liest sie für Titel, Sortierung, Daten und den Suchindex der Seite."
+      fm-toggle: "Frontmatter-Felder ein-/ausblenden"
+      fm-now: "Jetzt"
+      fm-now-date: "Auf das heutige Datum setzen"
+      fm-now-date-time: "Auf das aktuelle Datum und die aktuelle Uhrzeit setzen"
+      fm-dropdown-none: "—"
+      fm-time-optional: "optional"
+      fm-extras-title: "Zusätzliche Schlüssel"
+      fm-extras-empty: "Keine zusätzlichen Schlüssel — importierte Schlüssel, die nicht in der config.yml stehen, oder selbst hinzugefügte, erscheinen hier."
+      fm-extras-hint: "Wird als reiner Text übernommen und genau so ausgegeben, wie eingegeben."
+      fm-add-key: "Schlüssel hinzufügen"
+      fm-remove-key: "Schlüssel entfernen"
+      fm-key-name: "Schlüssel"
+      fm-key-value: "Wert"
+      ph-fm-key: "z. B. custom-key"
+
+      fm-title: "Titel"
+      fm-sort: "Sortierung"
+      fm-section-id: "Bereich"
+      fm-draft: "Entwurf"
+      fm-author: "Autor"
+      fm-created: "Erstellt"
+      fm-modified: "Geändert"
+      fm-description: "Beschreibung"
+      fm-keywords: "Schlagwörter"
+      fm-language: "Sprache"
+      fm-draft-chip: "Entwurf"
 
       callout-title: "Callout"
       callout-mode-label: "Modus"
