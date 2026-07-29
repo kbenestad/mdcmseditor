@@ -204,25 +204,48 @@
 
 .mce-entries-title { margin: 4px 0 10px; }
 
-/* Front matter card: field grid + date-time row + Additional-keys list. */
+/* Front matter card: field grid + date-time row + Additional-keys list.
+   Each visual row (1 or 2 fields, see buildFrontmatterFieldRow()) is its own
+   grid with named areas — labela/labelb on row 1, controla/controlb on row
+   2, notea/noteb on row 3 (only when at least one field in the row has a
+   note, e.g. date-time's "optional"). Naming the areas explicitly (rather
+   than relying on each field being an independent flex column) is what
+   guarantees every row's labels share one line and every row's controls
+   share the line below regardless of one field having extra content the
+   other doesn't — a plain per-field flex column can't do that once row
+   heights differ (a trailing note, or a boolean field with no label at all,
+   both throw it off). */
 .mce-fm-card.is-collapsed .mce-fm-hint,
 .mce-fm-card.is-collapsed .mce-fm-body { display: none; }
 .mce-fm-hint { font-size: var(--fs-small); color: var(--text-muted); margin: -2px 0 14px; line-height: 1.6; }
-.mce-fm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; }
-.mce-fm-grid .kb-field.full-width { grid-column: 1 / -1; }
+.mce-fm-grid { display: flex; flex-direction: column; gap: 16px; }
+.mce-fm-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-areas: "labela labelb" "controla controlb";
+  column-gap: 16px; row-gap: 5px;
+}
+.mce-fm-row.mce-fm-row--has-note { grid-template-areas: "labela labelb" "controla controlb" "notea noteb"; }
+.mce-fm-row--solo { grid-template-columns: 1fr; grid-template-areas: "labela" "controla"; }
+.mce-fm-row--solo.mce-fm-row--has-note { grid-template-areas: "labela" "controla" "notea"; }
+.mce-fm-cell-control { align-self: end; min-width: 0; }
 .mce-fm-datetime { display: flex; align-items: center; gap: 8px; }
 .mce-fm-datetime input[type="date"] { flex: 1; min-width: 0; }
 .mce-fm-datetime input[type="time"] { flex: 0 0 auto; width: 110px; }
 .mce-fm-now-btn { flex-shrink: 0; padding: 0 10px; }
-.mce-fm-time-note { font-size: var(--fs-label); color: var(--text-muted); margin-top: 3px; }
-.mce-fm-extras { margin-top: 18px; }
+.mce-fm-time-note { font-size: var(--fs-label); color: var(--text-muted); }
+.mce-fm-extras { margin-top: 4px; }
 .mce-fm-extras-title { margin: 0 0 10px; }
 .mce-fm-extra-row .mce-item__row { grid-template-columns: 1fr 1fr; align-items: end; }
 .mce-fm-extra-row .mce-item__head { margin-bottom: 10px; }
 
 @media (max-width: 600px) {
   .mce-item__row { grid-template-columns: 1fr; }
-  .mce-fm-grid { grid-template-columns: 1fr; }
+  .mce-fm-row {
+    grid-template-columns: 1fr;
+    grid-template-areas: "labela" "controla" "labelb" "controlb";
+  }
+  .mce-fm-row.mce-fm-row--has-note { grid-template-areas: "labela" "controla" "notea" "labelb" "controlb" "noteb"; }
   .mce-fm-extra-row .mce-item__row { grid-template-columns: 1fr; }
 }
 
@@ -1711,21 +1734,23 @@ function fmPad2(n) { return String(n).padStart(2, '0'); }
 function fmNowDate() { const d = new Date(); return d.getFullYear() + '-' + fmPad2(d.getMonth() + 1) + '-' + fmPad2(d.getDate()); }
 function fmNowTime() { const d = new Date(); return fmPad2(d.getHours()) + ':' + fmPad2(d.getMinutes()); }
 
-// One field's input, wired to mutate state and refresh Preview/Output only —
-// never touches a Toast UI Editor instance (see the file-header lifecycle note).
-function buildFrontmatterFieldInput(def) {
+// One field's pieces — { label, control, note } — wired to mutate state and
+// refresh Preview/Output only (never touches a Toast UI Editor instance, see
+// the file-header lifecycle note). Assembled into a shared label-row/
+// control-row/note-row grid by buildFrontmatterFieldRow(), which is what
+// keeps a row's labels and controls aligned regardless of one field having
+// content (a note, or no label at all) the other doesn't.
+function buildFrontmatterFieldParts(def) {
   const fm = state.page.frontmatter;
   const label = fmLabel(def);
 
   if (def.type === 'boolean') {
-    const wrap = el('div', { className: 'kb-field' + (def.fullWidth ? ' full-width' : '') });
     const toggle = el('label', { className: 'mce-toggle' });
     const input = el('input', { type: 'checkbox' });
     input.checked = fm.values[def.key] === true;
     input.addEventListener('change', () => { fm.values[def.key] = input.checked; refreshDerived('page'); });
     toggle.append(input, document.createTextNode(label));
-    wrap.appendChild(toggle);
-    return wrap;
+    return { label: '', control: toggle, note: null }; // no separate top label — the toggle carries its own
   }
 
   if (def.type === 'dropdown') {
@@ -1739,7 +1764,7 @@ function buildFrontmatterFieldInput(def) {
       select.appendChild(opt);
     });
     select.addEventListener('change', () => { fm.values[def.key] = select.value; refreshDerived('page'); });
-    return field(label, select, def.fullWidth ? 'full-width' : '');
+    return { label, control: select, note: null };
   }
 
   if (def.type === 'date' || def.type === 'date-time') {
@@ -1769,20 +1794,49 @@ function buildFrontmatterFieldInput(def) {
       }, S('fm-now'));
       wrap.appendChild(nowBtn);
     }
-    const f = field(label, wrap, def.fullWidth ? 'full-width' : '');
-    if (def.type === 'date-time') f.appendChild(el('div', { className: 'mce-fm-time-note' }, S('fm-time-optional')));
-    return f;
+    const note = def.type === 'date-time' ? el('div', { className: 'mce-fm-time-note' }, S('fm-time-optional')) : null;
+    return { label, control: wrap, note };
   }
 
   const input = el('input', { className: 'kb-input' + (def.type === 'number' ? ' num' : ''), type: def.type === 'number' ? 'number' : 'text', placeholder: def.placeholder });
   input.value = fm.values[def.key] || '';
   input.addEventListener('input', () => { fm.values[def.key] = def.type === 'number' ? input.value : sanitizeMarkdown(input.value); refreshDerived('page'); });
-  return field(label, input, def.fullWidth ? 'full-width' : '');
+  return { label, control: input, note: null };
+}
+
+// One visual row of 1 or 2 fields, laid out via CSS grid-template-areas (see
+// the .mce-fm-row rule) so every field's label sits in row 1, every
+// control in row 2, and any note in row 3 — a shared row per role, not one
+// self-contained column per field, which is what makes the row-alignment
+// hold regardless of a trailing note or a missing label. `entries` is
+// [{ def, parts }, ...], 1 or 2 long.
+function buildFrontmatterFieldRow(entries) {
+  const hasNote = entries.some(e => e.parts.note);
+  const row = el('div', { className: 'mce-fm-row'
+    + (entries.length === 1 ? ' mce-fm-row--solo' : '')
+    + (hasNote ? ' mce-fm-row--has-note' : '') });
+  entries.forEach(({ parts }, i) => {
+    const slot = i === 0 ? 'a' : 'b';
+    row.appendChild(el('span', { className: 'kb-label', style: { gridArea: 'label' + slot } }, parts.label));
+    row.appendChild(el('div', { className: 'mce-fm-cell-control', style: { gridArea: 'control' + slot } }, [parts.control]));
+    if (parts.note) row.appendChild(el('div', { style: { gridArea: 'note' + slot } }, [parts.note]));
+  });
+  return row;
 }
 
 function buildFrontmatterFieldsGrid() {
   const grid = el('div', { className: 'mce-fm-grid' });
-  FM_FIELDS.forEach(def => grid.appendChild(buildFrontmatterFieldInput(def)));
+  // Built once per field before grouping into rows, since a full-width field
+  // needs its own solo row while two ordinary fields pair up.
+  const entries = FM_FIELDS.map(def => ({ def, parts: buildFrontmatterFieldParts(def) }));
+  let i = 0;
+  while (i < entries.length) {
+    const a = entries[i];
+    if (a.def.fullWidth) { grid.appendChild(buildFrontmatterFieldRow([a])); i += 1; continue; }
+    const b = entries[i + 1];
+    if (b && !b.def.fullWidth) { grid.appendChild(buildFrontmatterFieldRow([a, b])); i += 2; }
+    else { grid.appendChild(buildFrontmatterFieldRow([a])); i += 1; }
+  }
   return grid;
 }
 
