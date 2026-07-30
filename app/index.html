@@ -229,7 +229,11 @@
   column-gap: 16px; row-gap: 5px;
 }
 .mce-fm-cell-control { align-self: end; min-width: 0; }
-.mce-fm-datetime { display: flex; align-items: center; gap: 8px; }
+/* align-items: stretch (not center) so .mce-fm-now-btn — which has no
+   vertical padding of its own, see below — matches the date/time inputs'
+   height exactly instead of guessing at a padding value that would only
+   happen to match at one font scale. */
+.mce-fm-datetime { display: flex; align-items: stretch; gap: 8px; }
 .mce-fm-datetime input[type="date"] { flex: 1; min-width: 0; }
 .mce-fm-datetime input[type="time"] { flex: 0 0 auto; width: 110px; }
 .mce-fm-now-btn { flex-shrink: 0; padding: 0 10px; }
