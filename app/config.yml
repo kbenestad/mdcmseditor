@@ -25,52 +25,70 @@ accent-colour: "#2f6fed"
 # with. A key imported from a .md file that isn't listed here still round-trips
 # — it lands in the card's "Additional keys" list instead.
 #
-# type: text | number | boolean | dropdown | date | date-time
+# type: text | number | boolean | dropdown | date | date-time | spacer
 #   dropdown-values: a YAML list, or a comma-separated string like keywords
 #   show-now-button: none (default) | date | date-time — adds a "Now" button
 #     next to a date/date-time field's input (used below on created/modified)
-#   full-width: yes — span both grid columns (long fields: description, keywords)
+#   width: 1-100 — this field's share of its row, in percent; fields are
+#     packed left to right and wrap to a new row once a row reaches 100
+#     (so e.g. 50 + 25 + 25 shares one row, 50 + 50 the next). Defaults to
+#     100 if `full-width: yes` is set (legacy alias, still honoured), else 50.
+#   full-width: yes — shorthand for width: 100 (long fields: description,
+#     keywords)
 #   required: yes — Validate errors when this field is empty
+#   `type: spacer` needs no key/keydescription/etc — it just reserves a
+#   blank cell of the given width in the row (used below to push `modified`
+#   into the same column as `created` on the row above).
 frontmatter:
   fields:
     - key: title
       keydescription: Title
       type: text
       required: yes
+      width: 100
       placeholder: "e.g. Quick Start"
-    - key: sort
-      keydescription: Sort order
-      type: number
-      default: 100
     - key: section-id
       keydescription: Section
       type: text
+      width: 50
+    - key: sort
+      keydescription: Sort order
+      type: number
+      width: 25
+      default: 100
     - key: draft
       keydescription: Draft
       type: boolean
+      width: 25
     - key: author
       keydescription: Author
       type: text
+      width: 50
     - key: created
       keydescription: Created
       type: date-time
+      width: 50
       show-now-button: date-time
+    - type: spacer
+      width: 50
     - key: modified
       keydescription: Modified
       type: date-time
+      width: 50
       show-now-button: date-time
     - key: description
       keydescription: Description
       type: text
-      full-width: yes
+      width: 100
     - key: keywords
       keydescription: Keywords
       type: text
-      full-width: yes
+      width: 100
       placeholder: "install, setup, quickstart"
     - key: language
       keydescription: Language
       type: dropdown
+      width: 50
       dropdown-values: [en, de]
 
 # ── Localisation ──────────────────────────────────────────────────────────────

@@ -205,29 +205,29 @@
 .mce-entries-title { margin: 4px 0 10px; }
 
 /* Front matter card: field grid + date-time row + Additional-keys list.
-   Each visual row (1 or 2 fields, see buildFrontmatterFieldRow()) is its own
-   grid with named areas — labela/labelb on row 1, controla/controlb on row
-   2, notea/noteb on row 3 (only when at least one field in the row has a
-   note, e.g. date-time's "optional"). Naming the areas explicitly (rather
-   than relying on each field being an independent flex column) is what
-   guarantees every row's labels share one line and every row's controls
-   share the line below regardless of one field having extra content the
-   other doesn't — a plain per-field flex column can't do that once row
-   heights differ (a trailing note, or a boolean field with no label at all,
-   both throw it off). */
+   Each visual row (see buildFrontmatterFieldsGrid(), which packs FM_LAYOUT
+   into rows by width) is `grid-auto-flow: column` over 3 fixed row-tracks
+   (label/control/note); every field contributes exactly those 3 children in
+   that order, so field 1 fills column 1 top-to-bottom, field 2 fills column
+   2, etc — see buildFrontmatterFieldRow(). That's what guarantees a row's
+   labels share one line and its controls share the line below regardless of
+   one field having a trailing note (or no label at all, e.g. a boolean)
+   another doesn't: alignment comes from every field using the same 3
+   row-tracks, not from each field being its own free-standing column, which
+   only stays aligned when every field in a row happens to have identical
+   internal height. `--fm-cols` (set inline per row in JS) gives each column
+   a width proportional to its field's configured `width`. */
 .mce-fm-card.is-collapsed .mce-fm-hint,
 .mce-fm-card.is-collapsed .mce-fm-body { display: none; }
 .mce-fm-hint { font-size: var(--fs-small); color: var(--text-muted); margin: -2px 0 14px; line-height: 1.6; }
 .mce-fm-grid { display: flex; flex-direction: column; gap: 16px; }
 .mce-fm-row {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  grid-template-areas: "labela labelb" "controla controlb";
+  grid-template-rows: auto auto auto;
+  grid-auto-flow: column;
+  grid-template-columns: var(--fm-cols, 1fr);
   column-gap: 16px; row-gap: 5px;
 }
-.mce-fm-row.mce-fm-row--has-note { grid-template-areas: "labela labelb" "controla controlb" "notea noteb"; }
-.mce-fm-row--solo { grid-template-columns: 1fr; grid-template-areas: "labela" "controla"; }
-.mce-fm-row--solo.mce-fm-row--has-note { grid-template-areas: "labela" "controla" "notea"; }
 .mce-fm-cell-control { align-self: end; min-width: 0; }
 .mce-fm-datetime { display: flex; align-items: center; gap: 8px; }
 .mce-fm-datetime input[type="date"] { flex: 1; min-width: 0; }
@@ -241,11 +241,11 @@
 
 @media (max-width: 600px) {
   .mce-item__row { grid-template-columns: 1fr; }
-  .mce-fm-row {
-    grid-template-columns: 1fr;
-    grid-template-areas: "labela" "controla" "labelb" "controlb";
-  }
-  .mce-fm-row.mce-fm-row--has-note { grid-template-areas: "labela" "controla" "notea" "labelb" "controlb" "noteb"; }
+  /* Single column, natural row flow — since every field still contributes
+     its label/control/note as 3 consecutive children (in that order), this
+     reflows as label1/control1/note1/label2/control2/note2/… stacked, not
+     all labels then all controls. */
+  .mce-fm-row { grid-template-columns: 1fr; grid-auto-flow: row; }
   .mce-fm-extra-row .mce-item__row { grid-template-columns: 1fr; }
 }
 
@@ -309,12 +309,18 @@ function normaliseConfig() {
 }
 
 // ── Front matter config ─────────────────────────────────────────────────────
-// FM_FIELDS is built once at boot from config.yml's `frontmatter:` block (see
-// its header comment there for the field shape). A missing/empty block simply
-// means FM_FIELDS stays [] and the Front matter card doesn't render — the
-// Page tab behaves exactly as it did before this feature.
+// FM_LAYOUT and FM_FIELDS are built once at boot from config.yml's
+// `frontmatter:` block (see its header comment there for the field shape). A
+// missing/empty block simply means both stay [] and the Front matter card
+// doesn't render — the Page tab behaves exactly as it did before this
+// feature. FM_LAYOUT is every entry in config order, including `type:
+// spacer` placeholders used purely to position other fields (see
+// buildFrontmatterFieldsGrid()); FM_FIELDS is FM_LAYOUT with spacers
+// filtered out — the one used everywhere a real value exists (state,
+// import/export, validation).
 const FM_TYPES = ['text', 'number', 'boolean', 'dropdown', 'date', 'date-time'];
 let FM_FIELDS = [];
+let FM_LAYOUT = [];
 
 // Accepts a YAML list OR a comma-separated string (like `keywords` itself),
 // trimmed and with blanks dropped — so config authors can write either.
@@ -324,12 +330,23 @@ function normaliseDropdownValues(raw) {
   return [];
 }
 
+// This field's share (1-100) of the row it's packed into — see
+// buildFrontmatterFieldsGrid(). Explicit `width:` wins; `full-width: yes` is
+// a legacy alias for 100; otherwise fields default to sharing a row 50/50.
+function fmFieldWidth(f) {
+  const n = Number(f.width);
+  if (Number.isFinite(n) && n > 0) return n;
+  return kbTruthy(f['full-width']) ? 100 : 50;
+}
+
 function normaliseFrontmatterConfig() {
   const raw = CFG && CFG.frontmatter && Array.isArray(CFG.frontmatter.fields) ? CFG.frontmatter.fields : [];
   const seen = new Set();
-  const fields = [];
+  const layout = [];
   raw.forEach(f => {
-    if (!f || typeof f.key !== 'string' || !f.key.trim()) return; // no key -> unusable, skip
+    if (!f) return;
+    if (f.type === 'spacer') { layout.push({ type: 'spacer', width: fmFieldWidth(f) }); return; }
+    if (typeof f.key !== 'string' || !f.key.trim()) return; // no key -> unusable, skip
     const key = f.key.trim();
     let type = FM_TYPES.includes(f.type) ? f.type : 'text';
     let dropdownValues = type === 'dropdown' ? normaliseDropdownValues(f['dropdown-values']) : [];
@@ -340,20 +357,21 @@ function normaliseFrontmatterConfig() {
       key, type,
       keydescription: typeof f.keydescription === 'string' ? f.keydescription : key,
       required: kbTruthy(f.required),
-      fullWidth: kbTruthy(f['full-width']),
+      width: fmFieldWidth(f),
       placeholder: typeof f.placeholder === 'string' ? f.placeholder : '',
       dropdownValues,
       showNow,
       default: f.default,
     };
     if (seen.has(key)) { // duplicate key in config -> last one wins, drop the earlier
-      const idx = fields.findIndex(x => x.key === key);
-      if (idx !== -1) fields.splice(idx, 1);
+      const idx = layout.findIndex(x => x.key === key);
+      if (idx !== -1) layout.splice(idx, 1);
     }
     seen.add(key);
-    fields.push(field);
+    layout.push(field);
   });
-  FM_FIELDS = fields;
+  FM_LAYOUT = layout;
+  FM_FIELDS = layout.filter(f => f.type !== 'spacer');
 }
 
 // Resolution order: a localised ui.fm-<key> string, then config.yml's
@@ -1804,39 +1822,51 @@ function buildFrontmatterFieldParts(def) {
   return { label, control: input, note: null };
 }
 
-// One visual row of 1 or 2 fields, laid out via CSS grid-template-areas (see
-// the .mce-fm-row rule) so every field's label sits in row 1, every
-// control in row 2, and any note in row 3 — a shared row per role, not one
-// self-contained column per field, which is what makes the row-alignment
-// hold regardless of a trailing note or a missing label. `entries` is
-// [{ def, parts }, ...], 1 or 2 long.
+// One visual row of N fields packed by width (see buildFrontmatterFieldsGrid).
+// The row is `grid-auto-flow: column` over 3 fixed row-tracks (label/control/
+// note), and every field contributes exactly those 3 children in that order
+// — so field 1's parts fill column 1 top-to-bottom, field 2's fill column 2,
+// etc. That's what keeps a row's labels sharing one line and its controls
+// sharing the line below regardless of one field having a trailing note (or
+// no label at all, e.g. a boolean) that another doesn't: alignment comes
+// from every field occupying the same 3 row-tracks, not from each field
+// being its own free-standing column. `--fm-cols` (consumed by the .mce-fm-row
+// rule) gives each column a width proportional to its field's `width`.
 function buildFrontmatterFieldRow(entries) {
-  const hasNote = entries.some(e => e.parts.note);
-  const row = el('div', { className: 'mce-fm-row'
-    + (entries.length === 1 ? ' mce-fm-row--solo' : '')
-    + (hasNote ? ' mce-fm-row--has-note' : '') });
-  entries.forEach(({ parts }, i) => {
-    const slot = i === 0 ? 'a' : 'b';
-    row.appendChild(el('span', { className: 'kb-label', style: { gridArea: 'label' + slot } }, parts.label));
-    row.appendChild(el('div', { className: 'mce-fm-cell-control', style: { gridArea: 'control' + slot } }, [parts.control]));
-    if (parts.note) row.appendChild(el('div', { style: { gridArea: 'note' + slot } }, [parts.note]));
+  const row = el('div', { className: 'mce-fm-row' });
+  row.style.setProperty('--fm-cols', entries.map(e => e.def.width + 'fr').join(' '));
+  entries.forEach(({ parts }) => {
+    row.appendChild(el('span', { className: 'kb-label' }, parts.label));
+    row.appendChild(el('div', { className: 'mce-fm-cell-control' }, [parts.control]));
+    row.appendChild(el('div', { className: 'mce-fm-cell-note' }, parts.note ? [parts.note] : []));
   });
   return row;
 }
 
+// A `type: spacer` config entry has no value, label, or control — it just
+// reserves a blank cell of its configured width so a later field can be
+// pushed into a specific column (see config.yml's frontmatter: header comment).
+function fmSpacerParts() {
+  return { label: '', control: el('div'), note: null };
+}
+
+// Packs FM_LAYOUT into rows by cumulative width, wrapping once the next
+// field wouldn't fit within 100 — so e.g. three fields at 50/25/25 share one
+// row, and a 50-wide field that doesn't fit next to it starts a fresh row
+// (matching how CSS flex-wrap would break a line, which plain CSS Grid has
+// no equivalent for — hence packing rows explicitly here rather than in CSS).
 function buildFrontmatterFieldsGrid() {
   const grid = el('div', { className: 'mce-fm-grid' });
-  // Built once per field before grouping into rows, since a full-width field
-  // needs its own solo row while two ordinary fields pair up.
-  const entries = FM_FIELDS.map(def => ({ def, parts: buildFrontmatterFieldParts(def) }));
-  let i = 0;
-  while (i < entries.length) {
-    const a = entries[i];
-    if (a.def.fullWidth) { grid.appendChild(buildFrontmatterFieldRow([a])); i += 1; continue; }
-    const b = entries[i + 1];
-    if (b && !b.def.fullWidth) { grid.appendChild(buildFrontmatterFieldRow([a, b])); i += 2; }
-    else { grid.appendChild(buildFrontmatterFieldRow([a])); i += 1; }
-  }
+  const entries = FM_LAYOUT.map(def => ({ def, parts: def.type === 'spacer' ? fmSpacerParts() : buildFrontmatterFieldParts(def) }));
+  let row = [], used = 0;
+  entries.forEach(entry => {
+    const w = entry.def.width;
+    if (row.length && used + w > 100) { grid.appendChild(buildFrontmatterFieldRow(row)); row = []; used = 0; }
+    row.push(entry);
+    used += w;
+    if (used >= 100) { grid.appendChild(buildFrontmatterFieldRow(row)); row = []; used = 0; }
+  });
+  if (row.length) grid.appendChild(buildFrontmatterFieldRow(row));
   return grid;
 }
 
